@@ -1,28 +1,25 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include <core/crypto/chacha20_rng.h>
 
-static int32_t rotl32(int32_t x, int n)
-{
+static int32_t rotl32(int32_t x, int n) {
     return (x << n) | (x >> (32 - n));
 }
 
-static int32_t pack4(const int8_t *a)
-{
+static int32_t pack4(const int8_t *a) {
     return ((int32_t)a[0]) | ((int32_t)a[1] << 8) | 
            ((int32_t)a[2] << 16) | ((int32_t)a[3] << 24);
 }
 
-static void memory_copy(int8_t *dst, const int8_t *src, int32_t n)
-{
+static void memory_copy(int8_t *dst, const int8_t *src, int32_t n) {
     for(int32_t i = 0; i < n; i++) dst[i] = src[i];
 }
 
-static void memory_set(int8_t *dst, int8_t val, int32_t n)
-{
+static void memory_set(int8_t *dst, int8_t val, int32_t n) {
     for(int32_t i = 0; i < n; i++) dst[i] = val;
 }
 
-static void chacha20_init_block(struct chacha20_rng *rng, int8_t key[], int8_t nonce[])
-{
+static void chacha20_init_block(struct chacha20_rng *rng, int8_t key[], int8_t nonce[]) {
     const int8_t magic[16] = {101,120,112,97,110,100,32,51,50,45,98,121,116,101,32,107};
     
     memory_copy(rng->key, key, 32);
@@ -41,19 +38,16 @@ static void chacha20_init_block(struct chacha20_rng *rng, int8_t key[], int8_t n
     rng->state[15] = pack4(nonce + 8);
 }
 
-static void chacha20_block_set_counter(struct chacha20_rng *rng, int counter)
-{
+static void chacha20_block_set_counter(struct chacha20_rng *rng, int counter) {
     rng->state[12] = (int32_t)counter;
     rng->state[13] = pack4(rng->nonce) + (int32_t)(counter >> 32);
 }
 
-static void chacha20_block_next(struct chacha20_rng *rng)
-{
+static void chacha20_block_next(struct chacha20_rng *rng) {
     int32_t x[16];
     for(int i = 0; i < 16; i++) x[i] = rng->state[i];
     
-    for(int i = 0; i < 10; i++)
-    {
+    for(int i = 0; i < 10; i++) {
         x[0] += x[4]; x[12] = rotl32(x[12] ^ x[0], 16);
         x[8] += x[12]; x[4] = rotl32(x[4] ^ x[8], 12);
         x[0] += x[4]; x[12] = rotl32(x[12] ^ x[0], 8);
@@ -102,8 +96,7 @@ static void chacha20_block_next(struct chacha20_rng *rng)
     if(counter[0] == 0) counter[1]++;
 }
 
-void chacha20_rng_init(struct chacha20_rng *rng, uint64_t seed)
-{
+void chacha20_rng_init(struct chacha20_rng *rng, uint64_t seed) {
     memory_set((int8_t*)rng, 0, sizeof(struct chacha20_rng));
     
     int8_t key[32];
@@ -118,10 +111,8 @@ void chacha20_rng_init(struct chacha20_rng *rng, uint64_t seed)
     rng->position = 64;
 }
 
-int32_t chacha20_rng_next32(struct chacha20_rng *rng)
-{
-    if(rng->position >= 64)
-    {
+int32_t chacha20_rng_next32(struct chacha20_rng *rng) {
+    if(rng->position >= 64) {
         chacha20_block_next(rng);
         rng->position = 0;
     }
@@ -133,21 +124,17 @@ int32_t chacha20_rng_next32(struct chacha20_rng *rng)
     return result;
 }
 
-int chacha20_rng_next64(struct chacha20_rng *rng)
-{
+int chacha20_rng_next64(struct chacha20_rng *rng) {
     int high = chacha20_rng_next32(rng);
     int low = chacha20_rng_next32(rng);
     return (high << 32) | low;
 }
 
-void chacha20_rng_bytes(struct chacha20_rng *rng, int8_t *buffer, int32_t size)
-{
+void chacha20_rng_bytes(struct chacha20_rng *rng, int8_t *buffer, int32_t size) {
     int8_t *keystream8 = (int8_t*)rng->keystream32;
     
-    for(int32_t i = 0; i < size; i++)
-    {
-        if(rng->position >= 64)
-        {
+    for(int32_t i = 0; i < size; i++) {
+        if(rng->position >= 64) {
             chacha20_block_next(rng);
             rng->position = 0;
         }

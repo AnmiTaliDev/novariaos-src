@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include <core/arch/cpuid.h>
 
 void cpuid(uint32_t leaf, uint32_t subleaf, cpuid_result_t* result) {

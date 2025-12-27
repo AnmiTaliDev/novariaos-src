@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: LGPL-3.0-or-later
-
 #include <core/fs/vfs.h>
 #include <core/kernel/kstd.h>
 #include <core/kernel/vge/fb_render.h>

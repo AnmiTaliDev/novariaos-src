@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 #include <core/kernel/shell.h>
 #include <core/kernel/kstd.h>
