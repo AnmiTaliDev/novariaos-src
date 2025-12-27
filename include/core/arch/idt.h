@@ -13,6 +13,4 @@
 
 #define SYSCALL_INTERRUPT 0x80
 
-extern uint8_t inb(uint16_t port);
-
 #endif
