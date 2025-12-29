@@ -31,6 +31,9 @@
 #define ENOTTY  25
 #define EBADF   9
 #define ENOSYS  38
+#define EBUSY   16
+#define ENOENT  2
+#define ENOTDIR 20
 
 typedef enum {
     VFS_TYPE_FILE,
@@ -87,6 +90,7 @@ int vfs_close(int fd);
 vfs_off_t vfs_seek(int fd, vfs_off_t offset, int whence);
 int vfs_delete(const char* filename);
 int vfs_ioctl(int fd, unsigned long request, void* arg);
+int vfs_rmdir(const char* dirname);
 bool vfs_exists(const char* filename);
 bool vfs_is_dir(const char* path);
 bool vfs_is_device(const char* path);

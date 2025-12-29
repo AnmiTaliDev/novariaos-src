@@ -542,6 +542,99 @@ int vfs_delete(const char* filename) {
     return -1;
 }
 
+int vfs_rmdir(const char* dirname) {
+    if (vfs_strlen(dirname) >= MAX_FILENAME) {
+        return -1;
+    }
+
+    vfs_file_t* dir = NULL;
+    int dir_idx = -1;
+    
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (files[i].used && vfs_strcmp(files[i].name, dirname) == 0) {
+            if (files[i].type != VFS_TYPE_DIR) {
+                return -ENOTDIR;
+            }
+            dir = &files[i];
+            dir_idx = i;
+            break;
+        }
+    }
+    
+    if (!dir) {
+        return -ENOENT; 
+    }
+
+    if (vfs_strcmp(dirname, "/") == 0) {
+        return -EBUSY;
+    }
+
+    int dir_len = vfs_strlen(dirname);
+    char normalized_dir[MAX_FILENAME];
+    vfs_strcpy(normalized_dir, dirname);
+
+    if (normalized_dir[dir_len - 1] != '/') {
+        normalized_dir[dir_len] = '/';
+        normalized_dir[dir_len + 1] = '\0';
+        dir_len++;
+    }
+    
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (files[i].used && i != dir_idx) {
+            const char* name = files[i].name;
+            int name_len = vfs_strlen(name);
+
+            if (name_len > dir_len && 
+                vfs_strncmp(name, normalized_dir, dir_len) == 0) {
+                
+                for (int j = 0; j < MAX_HANDLES; j++) {
+                    if (handles[j].used && handles[j].file == &files[i]) {
+                        handles[j].used = false;
+                        handles[j].fd = -1;
+                        handles[j].file = NULL;
+                        handles[j].position = 0;
+                        handles[j].flags = 0;
+                    }
+                }
+                
+                files[i].used = false;
+                files[i].size = 0;
+                files[i].name[0] = '\0';
+                files[i].data[0] = '\0';
+                files[i].type = VFS_TYPE_FILE;
+                files[i].ops.read = NULL;
+                files[i].ops.write = NULL;
+                files[i].ops.seek = NULL;
+                files[i].ops.ioctl = NULL;
+                files[i].dev_data = NULL;
+            }
+        }
+    }
+
+    for (int i = 0; i < MAX_HANDLES; i++) {
+        if (handles[i].used && handles[i].file == dir) {
+            handles[i].used = false;
+            handles[i].fd = -1;
+            handles[i].file = NULL;
+            handles[i].position = 0;
+            handles[i].flags = 0;
+        }
+    }
+    
+    files[dir_idx].used = false;
+    files[dir_idx].size = 0;
+    files[dir_idx].name[0] = '\0';
+    files[dir_idx].data[0] = '\0';
+    files[dir_idx].type = VFS_TYPE_FILE;
+    files[dir_idx].ops.read = NULL;
+    files[dir_idx].ops.write = NULL;
+    files[dir_idx].ops.seek = NULL;
+    files[dir_idx].ops.ioctl = NULL;
+    files[dir_idx].dev_data = NULL;
+    
+    return 0;
+}
+
 int vfs_ioctl(int fd, unsigned long request, void* arg) {
     vfs_handle_t* handle = get_handle(fd);
     if (!handle) return -1;

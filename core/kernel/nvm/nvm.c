@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <core/kernel/nvm/syscall.h>
-#include <core/kernel/kstd.h>
-#include <core/kernel/log.h>
 #include <core/drivers/serial.h>
 #include <core/kernel/nvm/nvm.h>
 #include <core/kernel/nvm/caps.h>
+#include <core/kernel/kstd.h>
+#include <core/kernel/log.h>
+#include <core/fs/procfs.h>
 #include <stdint.h>
 
 nvm_process_t processes[MAX_PROCESSES];
@@ -55,6 +56,7 @@ int nvm_create_process(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[]
                 processes[i].locals[j] = 0;
             }
 
+            procfs_register(i);
             return i;
         }
     }

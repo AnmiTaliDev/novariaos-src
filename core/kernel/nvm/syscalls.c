@@ -8,6 +8,7 @@
 #include <core/drivers/serial.h>
 #include <core/kernel/log.h>
 #include <core/kernel/mem.h>
+#include <core/fs/procfs.h>
 #include <core/fs/vfs.h>
 #include <core/arch/io.h>
 
@@ -40,6 +41,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             }
             proc->active = false;
 
+            procfs_unregister(proc->pid);
             if(proc->sp > 0) proc->sp--;
             break;
         }

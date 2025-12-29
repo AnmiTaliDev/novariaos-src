@@ -3,6 +3,8 @@
 
 #include <core/fs/vfs.h>
 
+void procfs_register(int pid);
+void procfs_unregister(int pid);
 vfs_ssize_t procfs_cpu(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos);
 vfs_ssize_t procfs_cpuinfo(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos);
 vfs_ssize_t procfs_meminfo(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos);

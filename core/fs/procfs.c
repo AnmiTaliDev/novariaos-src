@@ -17,6 +17,50 @@ void procfs_init() {
     cpuinfo_init();
 }
 
+void procfs_register(int pid) {
+    char pid_str[16];
+    char path[32];
+    
+    itoa(pid, pid_str, 10);
+
+    char* p = path;
+    const char* prefix = "/proc/";
+
+    while (*prefix) {
+        *p++ = *prefix++;
+    }
+
+    char* pid_p = pid_str;
+    while (*pid_p) {
+        *p++ = *pid_p++;
+    }
+    *p = '\0';
+    
+    vfs_mkdir(path);
+}
+
+void procfs_unregister(int pid) {
+    char pid_str[16];
+    char path[32];
+    
+    itoa(pid, pid_str, 10);
+
+    char* p = path;
+    const char* prefix = "/proc/";
+
+    while (*prefix) {
+        *p++ = *prefix++;
+    }
+
+    char* pid_p = pid_str;
+    while (*pid_p) {
+        *p++ = *pid_p++;
+    }
+    *p = '\0';
+    
+    vfs_rmdir(path);
+}
+
 static char cpuinfo_buf[2048];
 static int cpuinfo_initialized = 0;
 
@@ -275,14 +319,6 @@ void cpuinfo_init(void) {
     } 
     else if (strcmp(mhz_str, "unknown") != 0) {
         strcat_safe(buf, mhz_str, remaining);
-    }
-    else {
-        cpuid(0x80000007, 0, &result);
-        if (result.edx & (1 << 8)) {
-            strcat_safe(buf, "TSC invariant", remaining);
-        } else {
-            strcat_safe(buf, "measuring...", remaining);
-        }
     }
     strcat_safe(buf, "\n", remaining);
     buf += strlen(buf);
