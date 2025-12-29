@@ -17,7 +17,6 @@
 
 static char current_working_directory[MAX_PATH_LENGTH] = "/";
 
-
 static void cmd_help(void) {
     kprint("\nBuilt-in commands:\n", 10);
     kprint("  help     - Show this help message\n", 7);

@@ -14,17 +14,13 @@ void reverse(char* str, int length) {
     }
 }
 
-char* strncpy(char *dest, const char *src, unsigned long n) {
-    unsigned int i = 0;
-    while (i < n && src[i] != '\0') {
-        dest[i] = src[i];
-        i++;
+char* strcpy(char *dest, const char *src) {
+    char *d = dest;
+    while (*src) {
+        *dest++ = *src++;
     }
-    while (i < n) {
-        dest[i] = '\0';
-        i++;
-    }
-    return dest;
+    *dest = '\0';
+    return d;
 }
 
 void strcpy_safe(char *dest, const char *src, size_t max_len) {
@@ -36,6 +32,18 @@ void strcpy_safe(char *dest, const char *src, size_t max_len) {
     dest[i] = '\0';
 }
 
+char* strcat(char *dest, const char *src) {
+    char *d = dest;
+    while (*dest) {
+        dest++;
+    }
+    while (*src) {
+        *dest++ = *src++;
+    }
+    *dest = '\0';
+    return d;
+}
+
 void strcat_safe(char *dest, const char *src, size_t max_len) {
     size_t dest_len = strlen(dest);
     size_t i = 0;
@@ -44,6 +52,16 @@ void strcat_safe(char *dest, const char *src, size_t max_len) {
         i++;
     }
     dest[dest_len + i] = '\0';
+}
+
+int strncmp(const char *s1, const char *s2, size_t n) {
+    while (n > 0 && *s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+        n--;
+    }
+    if (n == 0) return 0;
+    return *(unsigned char*)s1 - *(unsigned char*)s2;
 }
 
 char* itoa(int num, char* str, int base) {

@@ -5,23 +5,13 @@
 #include <core/kernel/kstd.h>
 #include <core/kernel/vge/fb_render.h>
 #include <core/kernel/mem.h>
+#include <string.h>
 
 static uint8_t* iso_data = NULL;
 static size_t iso_data_size = 0;
 static iso9660_pvd_t* primary_volume = NULL;
 static uint16_t block_size = 2048;
 static bool initialized = false;
-
-static int strncmp(const char* s1, const char* s2, size_t n) {
-    while (n && *s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
-        n--;
-    }
-    if (n == 0) return 0;
-    return *(unsigned char*)s1 - *(unsigned char*)s2;
-}
-
 
 static const uint8_t* read_block(uint32_t lba) {
     if (!iso_data || (size_t)lba * block_size >= iso_data_size) {

@@ -56,7 +56,7 @@ int nvm_create_process(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[]
                 processes[i].locals[j] = 0;
             }
 
-            procfs_register(i);
+            procfs_register(i, &processes[i]);
             return i;
         }
     }

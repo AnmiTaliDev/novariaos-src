@@ -4,6 +4,7 @@
 #include <core/kernel/kstd.h>
 #include <core/kernel/vge/fb_render.h>
 #include <stddef.h>
+#include <string.h>
 
 #define MAX_PROGRAMS 32
 #define MAX_PROGRAM_NAME 16
@@ -15,14 +16,6 @@ typedef struct {
 } userspace_entry_t;
 
 static userspace_entry_t programs[MAX_PROGRAMS];
-
-// Helper function to copy string
-static void strcpy(char* dest, const char* src) {
-    while (*src) {
-        *dest++ = *src++;
-    }
-    *dest = '\0';
-}
 
 // Initialize userspace
 static void userspace_init(void) {

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <core/kernel/log.h>
+#include <core/kernel/mem.h>
+#include <core/kernel/kstd.h>
 #include <core/fs/procfs.h>
 #include <core/fs/devfs.h>
 #include <core/fs/vfs.h>
-#include <string.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define DEV_NULL_FD   1000
 #define DEV_ZERO_FD   1001
@@ -19,38 +18,13 @@ static vfs_file_t files[MAX_FILES];
 static vfs_handle_t handles[MAX_HANDLES];
 static int next_fd = 3;
 
-static int vfs_strcmp(const char* str1, const char* str2) {
-    while (*str1 && (*str1 == *str2)) {
-        str1++;
-        str2++;
-    }
-    return *(unsigned char*)str1 - *(unsigned char*)str2;
-}
+// vfs_strcmp is now replaced with strcmp from kstd.h
 
-static void vfs_strcpy(char* dest, const char* src) {
-    while (*src) {
-        *dest++ = *src++;
-    }
-    *dest = '\0';
-}
+// vfs_strcpy is now replaced with strcpy from kstd.h
 
-static int vfs_strlen(const char* str) {
-    int len = 0;
-    while (str[len] != '\0') {
-        len++;
-    }
-    return len;
-}
+// vfs_strlen is now replaced with strlen from kstd.h
 
-static int vfs_strncmp(const char* s1, const char* s2, int n) {
-    while (n > 0 && *s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
-        n--;
-    }
-    if (n == 0) return 0;
-    return *(unsigned char*)s1 - *(unsigned char*)s2;
-}
+// vfs_strncmp is now replaced with strncmp from kstd.h
 
 static vfs_handle_t* get_handle(int fd) {
     for (int i = 0; i < MAX_HANDLES; i++) {
@@ -67,7 +41,7 @@ int vfs_pseudo_register_with_fd(const char* filename, int fixed_fd,
                             vfs_dev_seek_t seek_fn,
                             vfs_dev_ioctl_t ioctl_fn,
                             void* dev_data) {
-    if (vfs_strlen(filename) >= MAX_FILENAME) {
+    if (strlen(filename) >= MAX_FILENAME) {
         return -1;
     }
     
@@ -81,7 +55,7 @@ int vfs_pseudo_register_with_fd(const char* filename, int fixed_fd,
     int file_idx = -1;
     
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, filename) == 0) {
+        if (files[i].used && strcmp(files[i].name, filename) == 0) {
             file_idx = i;
             file = &files[i];
             break;
@@ -110,11 +84,11 @@ int vfs_pseudo_register_with_fd(const char* filename, int fixed_fd,
     handles[handle_idx].position = 0;
     handles[handle_idx].flags = VFS_READ | VFS_WRITE;
     
-    if (vfs_strcmp(filename, "/dev/stdout") == 0 || 
-        vfs_strcmp(filename, "/dev/stderr") == 0) {
+    if (strcmp(filename, "/dev/stdout") == 0 ||
+        strcmp(filename, "/dev/stderr") == 0) {
         handles[handle_idx].flags = VFS_WRITE;
     }
-    else if (vfs_strcmp(filename, "/dev/stdin") == 0) {
+    else if (strcmp(filename, "/dev/stdin") == 0) {
         handles[handle_idx].flags = VFS_READ;
     }
     
@@ -124,7 +98,7 @@ int vfs_pseudo_register_with_fd(const char* filename, int fixed_fd,
 void vfs_link_std_fd(int std_fd, const char* dev_name) {
     vfs_file_t* dev_file = NULL;
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, dev_name) == 0) {
+        if (files[i].used && strcmp(files[i].name, dev_name) == 0) {
             dev_file = &files[i];
             break;
         }
@@ -240,12 +214,12 @@ void vfs_init(void) {
 }
 
 int vfs_mkdir(const char* dirname) {
-    if (vfs_strlen(dirname) >= MAX_FILENAME) {
+    if (strlen(dirname) >= MAX_FILENAME) {
         return -1;
     }
     
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, dirname) == 0) {
+        if (files[i].used && strcmp(files[i].name, dirname) == 0) {
             if (files[i].type == VFS_TYPE_DIR) {
                 return i;
             }
@@ -255,7 +229,7 @@ int vfs_mkdir(const char* dirname) {
     
     for (int i = 0; i < MAX_FILES; i++) {
         if (!files[i].used) {
-            vfs_strcpy(files[i].name, dirname);
+            strcpy(files[i].name, dirname);
             files[i].size = 0;
             files[i].used = true;
             files[i].type = VFS_TYPE_DIR;
@@ -267,7 +241,7 @@ int vfs_mkdir(const char* dirname) {
 }
 
 int vfs_create(const char* filename, const char* data, size_t size) {
-    if (vfs_strlen(filename) >= MAX_FILENAME) {
+    if (strlen(filename) >= MAX_FILENAME) {
         return -1;
     }
     
@@ -276,7 +250,7 @@ int vfs_create(const char* filename, const char* data, size_t size) {
     }
     
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, filename) == 0) {
+        if (files[i].used && strcmp(files[i].name, filename) == 0) {
             if (files[i].type == VFS_TYPE_DIR) {
                 return -4;
             }
@@ -288,7 +262,7 @@ int vfs_create(const char* filename, const char* data, size_t size) {
     
     for (int i = 0; i < MAX_FILES; i++) {
         if (!files[i].used) {
-            vfs_strcpy(files[i].name, filename);
+            strcpy(files[i].name, filename);
             memcpy(files[i].data, data, size);
             files[i].size = size;
             files[i].used = true;
@@ -306,12 +280,12 @@ int vfs_pseudo_register(const char* filename,
             vfs_dev_seek_t seek_fn,
             vfs_dev_ioctl_t ioctl_fn,
             void* dev_data) {
-    if (vfs_strlen(filename) >= MAX_FILENAME) {
+    if (strlen(filename) >= MAX_FILENAME) {
         return -1;
     }
     
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, filename) == 0) {
+        if (files[i].used && strcmp(files[i].name, filename) == 0) {
             if (files[i].type == VFS_TYPE_DIR) {
                 return -4;
             }
@@ -326,7 +300,7 @@ int vfs_pseudo_register(const char* filename,
     
     for (int i = 0; i < MAX_FILES; i++) {
         if (!files[i].used) {
-            vfs_strcpy(files[i].name, filename);
+            strcpy(files[i].name, filename);
             files[i].size = 0;
             files[i].used = true;
             files[i].type = VFS_TYPE_DEVICE;
@@ -343,22 +317,47 @@ int vfs_pseudo_register(const char* filename,
 }
 
 const char* vfs_read(const char* filename, size_t* size) {
+    vfs_file_t* file = NULL;
+    int file_idx = -1;
+    
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, filename) == 0) {
-            if (size) *size = files[i].size;
-            return files[i].data;
+        if (files[i].used && strcmp(files[i].name, filename) == 0) {
+            file = &files[i];
+            file_idx = i;
+            break;
         }
     }
     
-    if (size) *size = 0;
-    return NULL;
+    if (!file) {
+        if (size) *size = 0;
+        return NULL;
+    }
+    
+    if (file->type == VFS_TYPE_DEVICE) {
+        static char dev_buffer[MAX_FILE_SIZE];
+        if (file->ops.read) {
+            vfs_off_t pos = 0;
+            vfs_ssize_t bytes = file->ops.read(file, dev_buffer, 
+                                              MAX_FILE_SIZE, &pos);
+            if (bytes > 0) {
+                if (size) *size = bytes;
+                dev_buffer[bytes] = '\0';
+                return dev_buffer;
+            }
+        }
+        if (size) *size = 0;
+        return NULL;
+    }
+
+    if (size) *size = file->size;
+    return file->data;
 }
 
 int vfs_open(const char* filename, int flags) {
     vfs_file_t* file = NULL;
     
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, filename) == 0) {
+        if (files[i].used && strcmp(files[i].name, filename) == 0) {
             file = &files[i];
             break;
         }
@@ -513,9 +512,7 @@ vfs_off_t vfs_seek(int fd, vfs_off_t offset, int whence) {
 
 int vfs_delete(const char* filename) {
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, filename) == 0) {
-            if (files[i].type == VFS_TYPE_DEVICE && files[i].dev_data) {
-            }
+        if (files[i].used && strcmp(files[i].name, filename) == 0) {
             
             for (int j = 0; j < MAX_HANDLES; j++) {
                 if (handles[j].used && handles[j].file == &files[i]) {
@@ -543,7 +540,7 @@ int vfs_delete(const char* filename) {
 }
 
 int vfs_rmdir(const char* dirname) {
-    if (vfs_strlen(dirname) >= MAX_FILENAME) {
+    if (strlen(dirname) >= MAX_FILENAME) {
         return -1;
     }
 
@@ -551,7 +548,7 @@ int vfs_rmdir(const char* dirname) {
     int dir_idx = -1;
     
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, dirname) == 0) {
+        if (files[i].used && strcmp(files[i].name, dirname) == 0) {
             if (files[i].type != VFS_TYPE_DIR) {
                 return -ENOTDIR;
             }
@@ -565,13 +562,13 @@ int vfs_rmdir(const char* dirname) {
         return -ENOENT; 
     }
 
-    if (vfs_strcmp(dirname, "/") == 0) {
+    if (strcmp(dirname, "/") == 0) {
         return -EBUSY;
     }
 
-    int dir_len = vfs_strlen(dirname);
+    int dir_len = strlen(dirname);
     char normalized_dir[MAX_FILENAME];
-    vfs_strcpy(normalized_dir, dirname);
+    strcpy(normalized_dir, dirname);
 
     if (normalized_dir[dir_len - 1] != '/') {
         normalized_dir[dir_len] = '/';
@@ -582,10 +579,10 @@ int vfs_rmdir(const char* dirname) {
     for (int i = 0; i < MAX_FILES; i++) {
         if (files[i].used && i != dir_idx) {
             const char* name = files[i].name;
-            int name_len = vfs_strlen(name);
+            int name_len = strlen(name);
 
             if (name_len > dir_len && 
-                vfs_strncmp(name, normalized_dir, dir_len) == 0) {
+                strncmp(name, normalized_dir, dir_len) == 0) {
                 
                 for (int j = 0; j < MAX_HANDLES; j++) {
                     if (handles[j].used && handles[j].file == &files[i]) {
@@ -651,7 +648,7 @@ int vfs_ioctl(int fd, unsigned long request, void* arg) {
 
 bool vfs_exists(const char* filename) {
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, filename) == 0) {
+        if (files[i].used && strcmp(files[i].name, filename) == 0) {
             return true;
         }
     }
@@ -660,7 +657,7 @@ bool vfs_exists(const char* filename) {
 
 bool vfs_is_dir(const char* path) {
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, path) == 0) {
+        if (files[i].used && strcmp(files[i].name, path) == 0) {
             return files[i].type == VFS_TYPE_DIR;
         }
     }
@@ -669,7 +666,7 @@ bool vfs_is_dir(const char* path) {
 
 bool vfs_is_device(const char* path) {
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].used && vfs_strcmp(files[i].name, path) == 0) {
+        if (files[i].used && strcmp(files[i].name, path) == 0) {
             return files[i].type == VFS_TYPE_DEVICE;
         }
     }
@@ -691,10 +688,10 @@ vfs_file_t* vfs_get_files(void) {
 }
 
 void vfs_list_dir(const char* dirname) {
-    int dir_len = vfs_strlen(dirname);
+    int dir_len = strlen(dirname);
     
     char normalized_dir[MAX_FILENAME];
-    vfs_strcpy(normalized_dir, dirname);
+    strcpy(normalized_dir, dirname);
     if (dir_len > 1 && normalized_dir[dir_len - 1] == '/') {
         normalized_dir[dir_len - 1] = '\0';
         dir_len--;
@@ -717,10 +714,10 @@ void vfs_list_dir(const char* dirname) {
                 }
             }
         } else {
-            int name_len = vfs_strlen(name);
+            int name_len = strlen(name);
             if (name_len > dir_len && 
                 name[dir_len] == '/' &&
-                vfs_strncmp(name, normalized_dir, dir_len) == 0) {
+                strncmp(name, normalized_dir, dir_len) == 0) {
                 int slash_count = 0;
                 for (int j = dir_len + 1; name[j] != '\0'; j++) {
                     if (name[j] == '/') slash_count++;
