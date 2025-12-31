@@ -2,8 +2,6 @@
 
 ## High Priority
 - [ ] Refactor internal shell
-- [ ] Nutils: cat, ls
-- [ ] Passing ARGC, ARGV for binaries running from the Internal Shell
 
 ## Medium Priority
 - [ ] /dev/kbd
@@ -12,4 +10,8 @@
 
 ## Low Priority 
 - [ ] Shell's removal from the kernel
+- [ ] Nutils:
+    - [ ] cat
+    - [ ] ls
+- [ ] Passing ARGC, ARGV for binaries running from the Internal Shell
 - [ ] Full init system
