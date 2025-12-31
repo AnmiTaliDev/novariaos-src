@@ -14,7 +14,7 @@ variables:
 
   OS_NAME: NovariaOS
   OS_ID: novariaos
-  OS_VERSION: 0.0.8
+  OS_VERSION: 0.1.0
   OS_STAGE: RELEASE   # INDEV | RELEASE
   OS_COLOR: "0;33"
 
