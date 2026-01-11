@@ -6,7 +6,9 @@
 - [X] Refactor internal shell
 - [X] VFS Refactoring for Mountable Filesystems
 - [X] Block Device Abstraction Layer
+- [X] Endianness conversion utilities (le16/le32/le64, be16/be32/be64)
 - [ ] EXT2 Filesystem Driver (Initial support)
+- [ ] FAT32 Filesystem Driver (Initial support)
 
 ## Medium Priority
 - [ ] /dev/console (WIP: current stage — write only)
