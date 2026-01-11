@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <core/fs/vfs.h>
+#include <core/fs/devfs.h>
+#include <core/fs/procfs.h>
+#include <core/kernel/kstd.h>
 #include <core/kernel/log.h>
 #include <core/kernel/mem.h>
-#include <core/kernel/kstd.h>
-#include <core/fs/procfs.h>
-#include <core/fs/devfs.h>
-#include <core/fs/vfs.h>
+#include <stddef.h>
+#include <string.h>
 
-#define DEV_NULL_FD   1000
-#define DEV_ZERO_FD   1001
-#define DEV_FULL_FD   1002
 #define DEV_STDIN_FD  1003
 #define DEV_STDOUT_FD 1004
 #define DEV_STDERR_FD 1005
@@ -18,18 +17,9 @@ static vfs_file_t files[MAX_FILES];
 static vfs_handle_t handles[MAX_HANDLES];
 static int next_fd = 3;
 
-// New VFS abstraction layer tables
 static vfs_filesystem_t registered_fs[MAX_REGISTERED_FS];
 static vfs_mount_t mounts[MAX_MOUNTS];
 static vfs_file_handle_t file_handles[MAX_HANDLES];
-
-// vfs_strcmp is now replaced with strcmp from kstd.h
-
-// vfs_strcpy is now replaced with strcpy from kstd.h
-
-// vfs_strlen is now replaced with strlen from kstd.h
-
-// vfs_strncmp is now replaced with strncmp from kstd.h
 
 static vfs_handle_t* get_handle(int fd) {
     for (int i = 0; i < MAX_HANDLES; i++) {

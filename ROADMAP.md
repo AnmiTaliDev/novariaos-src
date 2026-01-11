@@ -1,5 +1,7 @@
 # Roadmap for NovariaOS 0.2.0
 
+# Roadmap for NovariaOS 0.2.0
+
 ## High Priority
 - [X] Refactor internal shell
 - [X] VFS Refactoring for Mountable Filesystems
@@ -7,8 +9,7 @@
 - [ ] EXT2 Filesystem Driver (Initial support)
 
 ## Medium Priority
-- [ ] /dev/kbd
-- [ ] /dev/tty0
+- [ ] /dev/console (WIP: current stage — write only)
 - [ ] Poor /sys/pci (vendor/device without interrupts)
 
 ## Low Priority 

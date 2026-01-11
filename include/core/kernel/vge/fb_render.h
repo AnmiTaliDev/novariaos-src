@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Built-in fallback font (used when system_font is not loaded)
-extern const uint8_t builtin_font[256][8];
+extern const uint8_t builtin_font[128][8];
 
 // Framebuffer rendering functions
 void init_fb(void);
@@ -12,7 +12,6 @@ void clear_screen(void);
 void newline(void);
 void fb_putchar(char c, int color);
 void vgaprint(const char *str, int color);
-void kprint(const char *str, int color);
 void set_bg_color(uint32_t color);
 void set_fg_color(uint32_t color);
 void vga_backspace(void);

@@ -218,13 +218,15 @@ static void execute_command(const char* command) {
         return;
     }
     
-    char* argv[16];
+char* argv[16];
     int argc = parse_command(command, argv, 16);
     
     if (argc == 0) return;
     
     if (strcmp(argv[0], "help") == 0) {
         cmd_help();
+    } else if (strcmp(argv[0], "clear") == 0) {
+        clear_screen();
     } else if (strcmp(argv[0], "pwd") == 0) {
         kprint(current_working_directory, 11);
         kprint("\n", 7);
@@ -242,7 +244,7 @@ static void execute_command(const char* command) {
         }
     } else if (strcmp(argv[0], "cd") == 0) {
         shell_set_cwd(argv[1]);
-    }  else {
+    } else {
         char bin_path[64];
         int len = strlen(argv[0]);
         
@@ -261,7 +263,6 @@ static void execute_command(const char* command) {
         bin_path[7 + len] = 'i';
         bin_path[8 + len] = 'n';
         bin_path[9 + len] = '\0';
-        
         if (vfs_exists(bin_path)) {
             size_t size;
             const char* data = vfs_read(bin_path, &size);
@@ -269,7 +270,48 @@ static void execute_command(const char* command) {
             if (data && size > 0) {
                 should_delay_prompt = 1;
                 delay_ticks = 50;
-                nvm_execute((uint8_t*)data, size, (uint16_t[]){CAP_ALL}, 1);
+                
+                int total_string_len = 0;
+                for (int i = 0; i < argc; i++) {
+                    total_string_len += strlen(argv[i]) + 1;
+                }
+
+                int stack_size = 1 + argc + total_string_len;
+                int32_t* initial_stack = kmalloc(stack_size * sizeof(int32_t));
+                
+                if (!initial_stack) {
+                    kprint("Error: Memory allocation failed\n", 12);
+                    return;
+                }
+                
+                int stack_pos = 0;
+
+                initial_stack[stack_pos++] = argc;
+
+                int argv_pointers_start = stack_pos;
+                stack_pos += argc;
+
+                for (int i = 0; i < argc; i++) {
+                    initial_stack[argv_pointers_start + i] = stack_pos;
+
+                    char* arg = argv[i];
+                    for (int j = 0; arg[j] != '\0'; j++) {
+                        initial_stack[stack_pos++] = (int32_t)(uint8_t)arg[j];
+                    }
+                    initial_stack[stack_pos++] = 0;
+                }
+
+                int pid = nvm_create_process_with_stack(
+                    (uint8_t*)data, size,
+                    (uint16_t[]){CAP_ALL}, 1,
+                    initial_stack, stack_pos
+                );
+                
+                kfree(initial_stack);
+                
+                if (pid < 0) {
+                    kprint("Error: Failed to create process\n", 12);
+                }
                 return;
             } else {
                 kprint("Error: Failed to read program file\n", 12);
