@@ -2,9 +2,19 @@
 
 ## High Priority
 - [X] Refactor internal shell
+- [ ] Memory manager rework:
+    - [ ] Buddy
+        - [ ] Buddy allocation
+        - [ ] Buddy free
+    - [ ] Slab
+        - [ ] Slab allocation
+        - [ ] Slab free
+    - [ ] Kstd allocations
+        - [ ] kmalloc
+        - [ ] kfree
 
 ## Medium Priority
-- [ ] /dev/console (WIP: current stage — write only)
+- [ ] /dev/tty (WIP: current stage — write only)
 - [ ] Poor /sys/pci (vendor/device without interrupts)
 
 ## Low Priority 
