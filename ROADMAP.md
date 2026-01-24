@@ -18,7 +18,7 @@
 - [ ] EXT2 Filesystem Driver (Initial support)
     - [x] Superblock and Group Descriptor Table parsing
     - [x] Bitmap management & Resource allocation (#14)
-    - [ ] Inode and Directory entry management (#14)
+    - [x] Inode and Directory entry management (#14)
     - [ ] Basic Read/Write operations
 - [ ] FAT32 Filesystem Driver (Initial support)
 
