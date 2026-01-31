@@ -22,6 +22,7 @@ void nvm_init() {
         processes[i].ip = 0;
         processes[i].exit_code = 0;
         processes[i].caps_count = 0;
+        processes[i].fp = -1;
     }
 
     kprint(":: NVM initialized\n", 7);
@@ -45,6 +46,7 @@ int nvm_create_process(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[]
             processes[i].exit_code = 0;
             processes[i].pid = i;
             processes[i].caps_count = 0;
+            processes[i].fp = -1;
 
             // Initializing capabilities
             for(int j = 0; j < caps_count && j < MAX_CAPS; j++) {
@@ -91,6 +93,7 @@ int nvm_create_process_with_stack(uint8_t* bytecode, uint32_t size,
             processes[i].caps_count = 0;
             processes[i].blocked = false;
             processes[i].wakeup_reason = 0;
+            processes[i].fp = -1;
 
             for(int j = 0; j < stack_count; j++) {
                 processes[i].stack[j] = initial_stack_values[j];
@@ -576,6 +579,167 @@ bool nvm_execute_instruction(nvm_process_t* proc) {
             }
             break;
 
+        // Stack frames:
+        case 0x35: { // ENTER locals_count (uint8)
+            if (proc->ip < proc->size) {
+                uint8_t locals = proc->bytecode[proc->ip++];
+                // Need space: save fp (1) + locals
+                if (proc->sp + 1 + locals <= STACK_SIZE) {
+                    // push old fp
+                    proc->stack[proc->sp++] = proc->fp;
+                    // set new fp to index of saved fp
+                    proc->fp = proc->sp - 1;
+                    // allocate locals (initialize to 0)
+                    for (uint8_t i = 0; i < locals; i++) {
+                        proc->stack[proc->sp++] = 0;
+                    }
+                } else {
+                    LOG_WARN("process %d: Stack overflow in ENTER\n", proc->pid);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+            } else {
+                LOG_WARN("process %d: Not enough bytes for ENTER\n", proc->pid);
+                proc->exit_code = -1;
+                proc->active = false;
+                return false;
+            }
+            break;
+        }
+        case 0x36: { // LEAVE
+            if (proc->fp < 0 || proc->fp >= STACK_SIZE) {
+                LOG_WARN("process %d: Invalid frame pointer in LEAVE\n", proc->pid);
+                proc->exit_code = -1;
+                proc->active = false;
+                return false;
+            }
+            // locals are any items above saved fp index
+            if (proc->sp < proc->fp + 1) {
+                LOG_WARN("process %d: Corrupted stack/frame in LEAVE\n", proc->pid);
+                proc->exit_code = -1;
+                proc->active = false;
+                return false;
+            }
+            // Drop locals
+            proc->sp = proc->fp + 1;
+            // Restore old fp
+            int32_t saved_fp = proc->stack[proc->fp];
+            // Pop saved fp
+            proc->sp = proc->fp; // remove saved fp slot
+            // Now restore fp value
+            proc->fp = saved_fp;
+            break;
+        }
+        case 0x42: { // LOAD_REL offset
+            if (proc->ip < proc->size) {
+                uint8_t off = proc->bytecode[proc->ip++];
+                if (proc->fp < 0) {
+                    LOG_WARN("process %d: LOAD_REL without frame\n", proc->pid);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+                int32_t idx = proc->fp + 1 + off;
+                if (idx >= 0 && idx < proc->sp && proc->sp < STACK_SIZE) {
+                    proc->stack[proc->sp++] = proc->stack[idx];
+                } else {
+                    LOG_WARN("process %d: Invalid index in LOAD_REL\n", proc->pid);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+            } else {
+                LOG_WARN("process %d: Not enough bytes for LOAD_REL\n", proc->pid);
+                proc->exit_code = -1;
+                proc->active = false;
+                return false;
+            }
+            break;
+        }
+        case 0x43: { // STORE_REL offset
+            if (proc->ip < proc->size) {
+                uint8_t off = proc->bytecode[proc->ip++];
+                if (proc->fp < 0) {
+                    LOG_WARN("process %d: STORE_REL without frame\n", proc->pid);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+                int32_t idx = proc->fp + 1 + off;
+                if (idx >= 0 && idx < STACK_SIZE && proc->sp > 0) {
+                    int32_t value = proc->stack[--proc->sp];
+                    proc->stack[idx] = value;
+                } else {
+                    LOG_WARN("process %d: Invalid index or stack underflow in STORE_REL\n", proc->pid);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+            } else {
+                LOG_WARN("process %d: Not enough bytes for STORE_REL\n", proc->pid);
+                proc->exit_code = -1;
+                proc->active = false;
+                return false;
+            }
+            break;
+        }
+
+        // Arguments access:
+        case 0x37: { // LOAD_ARG offset
+            if (proc->ip < proc->size) {
+                uint8_t off = proc->bytecode[proc->ip++];
+                if (proc->fp <= 0) { // need at least return_addr at fp-1
+                    LOG_WARN("process %d: LOAD_ARG without valid frame\n", proc->pid);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+                int32_t idx = (proc->fp - 2) - (int32_t)off; // arg0 at fp-2, arg1 at fp-3, ...
+                if (idx >= 0 && idx < proc->sp && proc->sp < STACK_SIZE) {
+                    proc->stack[proc->sp++] = proc->stack[idx];
+                } else {
+                    LOG_WARN("process %d: Invalid index in LOAD_ARG (idx=%d)\n", proc->pid, idx);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+            } else {
+                LOG_WARN("process %d: Not enough bytes for LOAD_ARG\n", proc->pid);
+                proc->exit_code = -1;
+                proc->active = false;
+                return false;
+            }
+            break;
+        }
+        case 0x38: { // STORE_ARG offset
+            if (proc->ip < proc->size) {
+                uint8_t off = proc->bytecode[proc->ip++];
+                if (proc->fp <= 0) {
+                    LOG_WARN("process %d: STORE_ARG without valid frame\n", proc->pid);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+                int32_t idx = (proc->fp - 2) - (int32_t)off;
+                if (idx >= 0 && idx < STACK_SIZE && proc->sp > 0) {
+                    int32_t value = proc->stack[--proc->sp];
+                    proc->stack[idx] = value;
+                } else {
+                    LOG_WARN("process %d: Invalid index or stack underflow in STORE_ARG (idx=%d)\n", proc->pid, idx);
+                    proc->exit_code = -1;
+                    proc->active = false;
+                    return false;
+                }
+            } else {
+                LOG_WARN("process %d: Not enough bytes for STORE_ARG\n", proc->pid);
+                proc->exit_code = -1;
+                proc->active = false;
+                return false;
+            }
+            break;
+        }
+
         // Memory:
         case 0x40: // LOAD
             if(proc->ip < proc->size) {
@@ -634,7 +798,6 @@ bool nvm_execute_instruction(nvm_process_t* proc) {
                     int32_t value = *(int32_t*)addr;
                     proc->stack[proc->sp - 1] = value;
 
-                    // Debug TODO: switch to kernel/log.h features
                     // char dbg[64];
                     // serial_print("DEBUG LOAD_ABS: addr=0x");
                     // itoa(addr, dbg, 16);

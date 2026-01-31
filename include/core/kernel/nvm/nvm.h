@@ -19,7 +19,10 @@ typedef struct {
     uint32_t size;              // Bytecode size
     int32_t exit_code;          // Exit code
 
-    int32_t locals[MAX_LOCALS]; // Local variables
+    int32_t locals[MAX_LOCALS]; // Legacy globals/local variables (process-scoped)
+
+    // Stack frames
+    int32_t fp;                 // Frame pointer (index into stack, -1 if no frame)
 
     // CAPS
     uint16_t capabilities[MAX_CAPS];  // List of caps
