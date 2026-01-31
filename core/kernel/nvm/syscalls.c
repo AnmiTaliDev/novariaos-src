@@ -247,6 +247,13 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             int start_pos = proc->sp;
             int null_pos = -1;
             
+            LOG_TRACE("OPEN syscall: SP=%d, stack top 20 values:\n", proc->sp);
+            for (int i = proc->sp - 1; i >= 0 && i >= proc->sp - 20; i--) {
+                int val = proc->stack[i] & 0xFF;
+                char display = (val >= 32 && val < 127) ? (char)val : '.';
+                LOG_TRACE("  stack[%d] = %X ('%c')\n", i, val, display);
+            }
+            
             for (int i = proc->sp - 1; i >= 0; i--) {
                 if ((proc->stack[i] & 0xFF) == 0) {
                     null_pos = i;
@@ -262,7 +269,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             char filename[MAX_FILENAME];
             int pos = 0;
        
-            for (int i = null_pos + 1; i < start_pos && pos < MAX_FILENAME - 1; i++) {
+            for (int i = start_pos - 1; i > null_pos && pos < MAX_FILENAME - 1; i--) {
                 char ch = proc->stack[i] & 0xFF;
                 filename[pos++] = ch;
             }
