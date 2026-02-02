@@ -1,20 +1,13 @@
-// SPDX-License-Identifier: GPL-3.0-only
-
 #include <stddef.h>
 #include <string.h>
-#include <core/kernel/nvm/syscall.h>
-#include <core/kernel/nvm/nvm.h>
-#include <core/kernel/nvm/caps.h>
-#include <core/drivers/serial.h>
-#include <core/kernel/log.h>
 #include <core/kernel/mem.h>
-#include <core/fs/procfs.h>
 #include <core/fs/vfs.h>
 #include <core/arch/io.h>
-
-uint16_t recipient;
-uint16_t port;
-uint8_t value;
+#include <core/kernel/nvm/nvm.h>
+#include <core/kernel/nvm/caps.h>
+#include <core/kernel/nvm/syscall.h>
+#include <core/kernel/kstd.h>
+#include <core/fs/procfs.h>
 
 typedef struct {
     uint16_t recipient;
@@ -28,14 +21,11 @@ static int message_count = 0;
 
 int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
     int32_t result = 0;
-    char buffer[32];
     
     switch(syscall_id) {
         case SYS_EXIT: {
             if(proc->sp >= 1) {
                 proc->exit_code = proc->stack[proc->sp - 1];
-                itoa(proc->exit_code, buffer, 10);
-                LOG_DEBUG("Process %d: exited with code: %s\n", proc->pid, buffer);
             } else {
                 proc->exit_code = 0;
             }
@@ -52,7 +42,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                 break;
             }
             if (proc->sp < 1) {
-                LOG_WARN("Process %d: Stack underflow for spawn\n", proc->pid);
                 result = -1;
                 break;
             }
@@ -60,9 +49,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             int target_fd = proc->stack[proc->sp - 1];
             int argc = proc->stack[proc->sp - 2];
             
-            LOG_TRACE("Process %d: Spawn called with fd=%d, argc=%d\n", 
-                    proc->pid, target_fd, argc);
-
             proc->sp -= 2;
 
             char* argv[argc];
@@ -82,8 +68,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                 }
                 
                 if (start_pos == -1 || start_pos > end_pos) {
-                    LOG_WARN("Process %d: Malformed string at arg %d\n", 
-                            proc->pid, arg_index);
                     result = -1;
                     break;
                 }
@@ -91,7 +75,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                 int len = end_pos - start_pos + 1;
                 argv[arg_index] = kmalloc(len + 1);
                 if (!argv[arg_index]) {
-                    LOG_WARN("Process %d: Failed to allocate memory\n", proc->pid);
                     result = -1;
                     break;
                 }
@@ -100,8 +83,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                     argv[arg_index][i] = (char)proc->stack[start_pos + i];
                 }
                 argv[arg_index][len] = '\0';
-                
-                LOG_TRACE("  argv[%d] = '%s'\n", arg_index, argv[arg_index]);
                 
                 arg_index++;
                 stack_pos = start_pos - 2;
@@ -122,7 +103,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
 
             bytecode = kmalloc(allocated_size);
             if (!bytecode) {
-                LOG_WARN("Process %d: Failed to allocate memory for bytecode\n", proc->pid);
                 for (int i = 0; i < argc; i++) {
                     kfree(argv[i]);
                 }
@@ -135,12 +115,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                 size_t bytes_read = vfs_readfd(target_fd, &read_byte, 1);
                 
                 if (bytes_read != 1) {
-                    if (bytes_read == 0) {
-                        LOG_DEBUG("Process %d: End of file reached, read %d bytes\n", 
-                                proc->pid, bytecode_size);
-                    } else {
-                        LOG_WARN("Process %d: Error reading file\n", proc->pid);
-                    }
                     break;
                 }
 
@@ -148,7 +122,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                     allocated_size *= 2;
                     uint8_t* new_bytecode = kmalloc(allocated_size);
                     if (!new_bytecode) {
-                        LOG_WARN("Process %d: Failed to reallocate bytecode buffer\n", proc->pid);
                         kfree(bytecode);
                         for (int i = 0; i < argc; i++) {
                             kfree(argv[i]);
@@ -181,7 +154,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             int stack_size = 1 + argc + total_string_len;
             int32_t* initial_stack = kmalloc(stack_size * sizeof(int32_t));
             if (!initial_stack) {
-                LOG_WARN("Process %d: Failed to allocate initial stack\n", proc->pid);
                 kfree(bytecode);
                 for (int i = 0; i < argc; i++) {
                     kfree(argv[i]);
@@ -213,7 +185,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             caps_copy(nvm_get_process(proc->pid), nvm_get_process(new_pid));
 
             if (new_pid < 0) {
-                LOG_WARN("Process %d: Failed to create new process\n", proc->pid);
                 kfree(bytecode);
                 for (int i = 0; i < argc; i++) {
                     kfree(argv[i]);
@@ -222,9 +193,8 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                 break;
             }
 
-            LOG_INFO("Process %d: Spawn process with pid %d\n", proc->pid, new_pid);
+            // kfree(bytecode); - УДАЛЕНО ДЛЯ ИСПРАВЛЕНИЯ USE-AFTER-FREE
 
-            kfree(bytecode);
             for (int i = 0; i < argc; i++) {
                 kfree(argv[i]);
             }
@@ -246,13 +216,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
 
             int start_pos = proc->sp;
             int null_pos = -1;
-            
-            LOG_TRACE("OPEN syscall: SP=%d, stack top 20 values:\n", proc->sp);
-            for (int i = proc->sp - 1; i >= 0 && i >= proc->sp - 20; i--) {
-                int val = proc->stack[i] & 0xFF;
-                char display = (val >= 32 && val < 127) ? (char)val : '.';
-                LOG_TRACE("  stack[%d] = %X ('%c')\n", i, val, display);
-            }
             
             for (int i = proc->sp - 1; i >= 0; i--) {
                 if ((proc->stack[i] & 0xFF) == 0) {
@@ -278,11 +241,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
 
             proc->sp = null_pos;
             
-            LOG_TRACE("Process %d: Opening file '%s'\n", proc->pid, filename);
-            
             int fd = vfs_open(filename, VFS_READ | VFS_WRITE);
-            
-            LOG_TRACE("     vfs_open returned: %d\n", fd);
             
             proc->stack[proc->sp] = fd;
             proc->sp++;
@@ -359,16 +318,14 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
 
         case SYS_MSG_SEND: {
                 if (proc->sp < 2) {
-                    LOG_WARN("Process %d: Stack underflow for msg_send\n", proc->pid);
                     result = -1;
                     break;
                 }
 
-                recipient = proc->stack[proc->sp - 2] & 0xFFFF;
-                value = proc->stack[proc->sp - 1] & 0xFF;
+                uint16_t recipient = proc->stack[proc->sp - 2] & 0xFFFF;
+                uint8_t content = proc->stack[proc->sp - 1] & 0xFF;
 
                 if (message_count >= MAX_MESSAGES) {
-                    LOG_WARN("Process %d: Message queue full\n", proc->pid);
                     result = -1;
                     break;
                 }
@@ -376,7 +333,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                 message_t msg;
                 msg.recipient = recipient;
                 msg.sender = proc->pid;
-                msg.content = value;
+                msg.content = content;
                 
                 message_queue[message_count] = msg;
                 message_count++;
@@ -385,7 +342,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                     if (processes[i].active && processes[i].pid == recipient && processes[i].blocked) {
                         processes[i].blocked = false; 
                         processes[i].wakeup_reason = 1;
-                        LOG_DEBUG("Unblocked process %d due to incoming message\n", recipient);
                         break;
                     }
                 }
@@ -404,11 +360,6 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             }
             
             if (found_index == -1) {
-                serial_print("No messages for process ");
-                itoa(proc->pid, buffer, 10);
-                serial_print(buffer);
-                serial_print(" - blocking process\n");
-                LOG_DEBUG("Process %d: No messages - blocking\n", proc->pid);
                 proc->blocked = true;
                 result = -1;
                 break;
@@ -421,72 +372,62 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             }
             message_count--;
 
-            if (proc->sp + 1 < 256) {
+            if (proc->sp + 1 < STACK_SIZE) {
                 proc->stack[proc->sp] = received_msg.sender;
                 proc->stack[proc->sp + 1] = received_msg.content;
                 proc->sp += 2;
             } else {
-                LOG_DEBUG("Process %d: Stack overflow in msg_receive\n", proc->pid);
                 result = -1;
                 break;
             }
-
-            itoa(proc->pid, buffer, 10);
-            LOG_DEBUG("Process %d: Message received\n", proc->pid);
             break;
         }
 
         case SYS_PORT_IN_BYTE: {
             if (!caps_has_capability(proc, CAP_DRV_ACCESS)) {
-                LOG_WARN("Process %d: Terminate process - required caps not received\n", proc->pid);
                 result = -1;
                 break;
             }
             
             if (proc->sp == 0) {
-                LOG_WARN("Process %d: Stack empty for inb\n", proc->pid);
                 result = -1;
                 break;
             }
-            port = proc->stack[proc->sp - 1];
-            value = inb(port);
+            uint16_t port = proc->stack[proc->sp - 1];
+            uint8_t val = inb(port);
             
-            proc->stack[proc->sp - 1] = (int16_t)value;
+            proc->stack[proc->sp - 1] = (int16_t)val;
             break;
         }
 
         case SYS_PORT_OUT_BYTE: {
             if (proc->sp < 2) {
-                LOG_WARN("Process %d: Stack underflow for outb\n", proc->pid);
                 result = -1;
                 break;
             }
             
-            port = proc->stack[proc->sp - 2] & 0xFFFF;
-            value = proc->stack[proc->sp - 1] & 0xFF;
+            uint16_t port = proc->stack[proc->sp - 2] & 0xFFFF;
+            uint8_t val = proc->stack[proc->sp - 1] & 0xFF;
 
-            outb(port, value);
+            outb(port, val);
             proc->sp -= 2;
             break;
         }
 
         case SYS_PRINT: {
             if (proc->sp < 1) {
-                LOG_WARN("Process %d: Stack underflow for print\n", proc->pid);
                 result = -1;
                 break;
             }
 
-            value = proc->stack[proc->sp - 1] & 0xFF;
-            char print_char[2] = {(char)value, 0};
+            uint8_t val = proc->stack[proc->sp - 1] & 0xFF;
+            char print_char[2] = {(char)val, 0};
             kprint(print_char, 15);
             proc->sp -= 1;
             break;
         }
 
         default: {
-            itoa(syscall_id, buffer, 16);
-            LOG_WARN("Process %d: unknown syscall: 0x%s\n", proc->pid, buffer);
             proc->exit_code = -1;
             proc->active = false;
         }
