@@ -830,6 +830,11 @@ int vfs_mount_fs(const char* fs_name, const char* mount_point,
     if (!fs_name || !mount_point) return -EINVAL;
     if (strlen(mount_point) >= MAX_MOUNT_PATH) return -EINVAL;
 
+    int mkdir_result = vfs_mkdir(mount_point);
+    if (mkdir_result < 0 && mkdir_result != -EEXIST) {
+        return mkdir_result;
+    }
+
     // Find the filesystem
     vfs_filesystem_t* fs = vfs_find_filesystem(fs_name);
     if (!fs) return -ENODEV;

@@ -96,7 +96,7 @@ void block_dev_vfs_init(void) {
         return;
     }
 
-    LOG_INFO("Registering block devices with VFS...");
+    LOG_INFO("Registering block devices with VFS...\n");
 
     for (int i = 0; i < MAX_BLOCK_DEVICES; i++) {
         if (devices[i].used) {
@@ -113,7 +113,7 @@ void block_dev_vfs_init(void) {
                 &devices[i] // Pass a pointer to the block device struct
             );
 
-            LOG_INFO("  Registered %s", dev_path);
+            LOG_INFO("  Registered %s\n", dev_path);
         }
     }
 }
