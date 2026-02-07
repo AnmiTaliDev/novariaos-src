@@ -187,10 +187,7 @@ void kmain() {
                 nvm_execute((uint8_t*)prog->data, prog->size, (uint16_t[]){CAP_ALL}, 1);
             }
         }
-    } else {
-        kprint(":: No programs found in initramfs\n", 14);
     }
-
     shell_init();
     shell_run();
 
