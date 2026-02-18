@@ -74,9 +74,8 @@ static inline bool fat32_is_bad(uint32_t entry) {
     return (entry & FAT32_MASK) == FAT32_BAD;
 }
 
-// Initialization, mount, and testing
+// Initialization and mount
 void fat32_init(void);
-void fat32_test(void);
 int fat32_mount(vfs_mount_t* mnt, const char* device, void* data);
 int fat32_unmount(vfs_mount_t* mnt);
 
