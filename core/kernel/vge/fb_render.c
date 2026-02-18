@@ -4,7 +4,7 @@
 #include <core/kernel/kstd.h>
 #include <core/kernel/vge/fb_render.h>
 #include <core/kernel/vge/palette.h>
-#include <lib/bootloader/limine.h>
+#include <lib/limine.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>

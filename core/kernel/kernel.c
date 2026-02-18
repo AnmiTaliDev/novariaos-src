@@ -22,7 +22,7 @@
 #include <rootfs/usr/src/userspace_init.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include <lib/bootloader/limine.h>
+#include <lib/limine.h>
 #include <core/kernel/elf.h>
 
 static volatile struct limine_module_request module_request = {
