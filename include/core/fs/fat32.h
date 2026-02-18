@@ -97,5 +97,4 @@ int fat32_free_chain(fat32_fs_t* fs, uint32_t start_cluster);
 uint32_t fat32_cluster_to_sector(fat32_fs_t* fs, uint32_t cluster);
 int fat32_read_cluster(fat32_fs_t* fs, uint32_t cluster, void* buffer);
 int fat32_write_cluster(fat32_fs_t* fs, uint32_t cluster, const void* buffer);
-
 #endif

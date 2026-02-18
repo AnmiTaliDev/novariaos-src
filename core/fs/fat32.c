@@ -110,6 +110,7 @@ int fat32_unmount(vfs_mount_t* mnt) {
     return 0;
 }
 
+<<<<<<< HEAD
 // --- Cluster chain management ---
 
 int fat32_read_fat_entry(fat32_fs_t* fs, uint32_t cluster, uint32_t* out_entry) {
