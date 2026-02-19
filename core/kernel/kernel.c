@@ -65,6 +65,7 @@ void limine_smp_entry(struct limine_mp_info *info) {
 }
 
 void kmain() {
+    init_fb();
     kprint(":: Initializing memory manager...\n", 7);
     initializeMemoryManager();
 
