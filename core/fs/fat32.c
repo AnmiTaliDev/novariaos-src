@@ -615,14 +615,15 @@ static int fat32_resolve_path(fat32_fs_t* fs, const char* path,
             return -ENOTDIR;
         }
 
-        // Validate cluster number before descending
-        if (entry.first_cluster == 0) {
-            LOG_WARN("fat32_resolve_path: entry '%s' has cluster 0\n", component);
-            return -EINVAL;
-        }
-
-        cur_cluster = entry.first_cluster;
         *out = entry;
+
+        if (*path != '\0') {
+            if (entry.first_cluster == 0) {
+                LOG_WARN("fat32_resolve_path: entry '%s' has cluster 0\n", component);
+                return -EINVAL;
+            }
+            cur_cluster = entry.first_cluster;
+        }
     }
 
     return 0;
