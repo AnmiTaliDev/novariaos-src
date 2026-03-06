@@ -6,21 +6,21 @@
 - [x] Block Device Abstraction Layer
 - [x] Endianness conversion utilities (le16/le32/le64, be16/be32/be64)
 - [x] Support kernel modules
-- [ ] Memory manager rework:
+- [x] Memory manager rework:
     - [X] Buddy
         - [X] Buddy allocation
         - [X] Buddy free
-    - [ ] Slab
-        - [ ] Slab allocation
-        - [ ] Slab free
-    - [ ] Kstd allocations (WIP: current stage — buddy only)
-        - [ ] kmalloc
-        - [ ] kfree
-- [ ] EXT2 Filesystem Driver (Initial support)
+    - [x] Slab
+        - [x] Slab allocation
+        - [x] Slab free
+    - [x] Kstd allocations (WIP: current stage — buddy only)
+        - [x] kmalloc
+        - [x] kfree
+- [x] EXT2 Filesystem Driver (Initial support)
     - [x] Superblock and Group Descriptor Table parsing
     - [x] Bitmap management & Resource allocation (#14)
     - [x] Inode and Directory entry management (#14)
-    - [ ] Basic Read/Write operations
+    - [x] Basic Read/Write operations
 - [ ] FAT32 Filesystem Driver (Initial support)
     - [x] Boot sector and FAT parsing
     - [x] Cluster chain management
@@ -31,10 +31,10 @@
     - [x] Directory removal (rmdir)
     - [x] File deletion (unlink)
 
-- [ ] IDE/ATA Disk Driver
+- [x] IDE/ATA Disk Driver
     - [x] ATA PIO detection (IDENTIFY)
     - [x] LBA28 read
-    - [ ] LBA28 write
+    - [x] LBA28 write
 
 ## Medium Priority
 - [ ] /dev/tty (WIP: current stage — write only)
