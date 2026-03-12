@@ -12,6 +12,7 @@
 #include <core/drivers/cdrom.h>
 #include <core/drivers/ramdisk.h>
 #include <core/drivers/ide.h>
+#include <core/drivers/nvme.h>
 #include <core/kernel/shell.h>
 #include <log.h>
 #include <core/fs/iso9660.h>
@@ -91,6 +92,7 @@ static void fs_init(void) {
     block_init();
 
     ide_init();
+    nvme_init();
     fat32_init();
     ext2_init();
 
