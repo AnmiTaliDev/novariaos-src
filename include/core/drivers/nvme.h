@@ -3,6 +3,9 @@
 #ifndef NVME_H
 #define NVME_H
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -27,7 +30,7 @@
 
 #define NVME_CAP_MQES_MASK    0xFFFF
 #define NVME_CAP_DSTRD_SHIFT  32
-#define NVME_CAP_DSTRD_MASK   (0xF << NVME_CAP_DSTRD_SHIFT)
+#define NVME_CAP_DSTRD_MASK   ((uint64_t)0xF << NVME_CAP_DSTRD_SHIFT)
 #define NVME_CAP_MPSMIN_SHIFT 48
 #define NVME_CAP_MPSMIN_MASK  (0xF << NVME_CAP_MPSMIN_SHIFT)
 
