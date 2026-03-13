@@ -271,13 +271,6 @@ targets:
     cmds:
       - "${CC} ${CFLAGS} ${@}.c -o ${OBJ_DIR}/${@}.o"
 
-
-
-  core/kernel/userspace:
-    deps: []
-    cmds:
-      - "${CC} ${CFLAGS} ${@}.c -o ${OBJ_DIR}/${@}.o"
-
   rootfs/usr/src/userspace_init:
     deps: []
     cmds:

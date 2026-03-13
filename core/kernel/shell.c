@@ -9,7 +9,6 @@
 #include <core/fs/vfs.h>
 #include <core/kernel/nvm/nvm.h>
 #include <core/kernel/nvm/caps.h>
-#include <core/kernel/userspace.h>
 #include <log.h>
 #include <core/arch/work_queue.h>
 #include <core/arch/smp.h>

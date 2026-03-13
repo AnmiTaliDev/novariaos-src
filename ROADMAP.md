@@ -13,7 +13,7 @@
     - [x] Slab
         - [x] Slab allocation
         - [x] Slab free
-    - [x] Kstd allocations (WIP: current stage — buddy only)
+    - [x] Kstd allocations
         - [x] kmalloc
         - [x] kfree
 - [x] EXT2 Filesystem Driver (Initial support)
@@ -21,7 +21,7 @@
     - [x] Bitmap management & Resource allocation (#14)
     - [x] Inode and Directory entry management (#14)
     - [x] Basic Read/Write operations
-- [ ] FAT32 Filesystem Driver (Initial support)
+- [x] FAT32 Filesystem Driver (Initial support)
     - [x] Boot sector and FAT parsing
     - [x] Cluster chain management
     - [x] Directory entry reading
@@ -36,6 +36,7 @@
     - [x] LBA28 read
     - [x] LBA28 write
 
+## Medium Priority
 - [ ] NVMe Driver
     - [x] NVMe controller initialization (reset, enable)
     - [x] NVMe admin queue setup and management
@@ -65,11 +66,10 @@
     - [ ] Port multiplier support
     - [ ] Error recovery and port reset
 
-## Medium Priority
+## Low Priority 
+_Actually, not needed for the current project state_
 - [ ] /dev/tty (WIP: current stage — write only)
 - [ ] Poor /sys/pci (vendor/device without interrupts)
-
-## Low Priority 
 - [ ] Shell's removal from the kernel
 - [ ] Nutils:
     - [ ] cat
