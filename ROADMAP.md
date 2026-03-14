@@ -42,11 +42,11 @@
     - [x] NVMe I/O queue setup and management
     - [x] MMIO register access functions
     - [x] Identify namespace command
-    - [x] NVMe read operations (polling mode)
-    - [ ] NVMe write operations
-    - [ ] Interrupt-based I/O (currently uses polling)
+    - [x] NVMe read operations
+    - [x] NVMe write operations
+    - [x] Interrupt-based I/O (MSI via PCI, vector 0x41)
+    - [x] PCI enumeration for NVMe devices
     - [ ] Multiple namespace support
-    - [ ] PCI enumeration for NVMe devices
 
 ## Medium Priority
 - [ ] /dev/tty (WIP: current stage — write only)
