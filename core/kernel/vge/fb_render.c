@@ -284,17 +284,23 @@ void newline(void) {
     fb_info.cursor_y += char_height;
 
     if (fb_info.cursor_y + char_height > fb_info.height) {
-        size_t pitch_bytes = fb_info.pitch;
-        size_t bytes_to_move = fb_info.screen_bytes - pitch_bytes;
+        size_t bytes_to_move = fb_info.screen_bytes - (char_height * fb_info.pitch);
 
-        for (uint32_t step = 0; step < char_height; step++) {
-            uint8_t *src = (uint8_t*)fb_addr + pitch_bytes;
-            uint8_t *dst = (uint8_t*)fb_addr;
-            memmove(dst, src, bytes_to_move);
+        uint8_t *src = (uint8_t*)fb_addr + (char_height * fb_info.pitch);
+        uint8_t *dst = (uint8_t*)fb_addr;
 
-            uint32_t *bottom_row = (uint32_t*)((uint8_t*)fb_addr + bytes_to_move);
-            for (uint32_t x = 0; x < fb_info.width; x++) {
-                bottom_row[x] = bg_color;
+        memmove(dst, src, bytes_to_move);
+
+        uint32_t *clear_start = (uint32_t*)((uint8_t*)fb_addr + bytes_to_move);
+        size_t clear_pixels = char_height * fb_info.width;
+
+        if ((bg_color & 0xFF) == ((bg_color >> 8) & 0xFF) && 
+            (bg_color & 0xFF) == ((bg_color >> 16) & 0xFF) && 
+            (bg_color & 0xFF) == ((bg_color >> 24) & 0xFF)) {
+            memset(clear_start, bg_color & 0xFF, clear_pixels * 4);
+        } else {
+            for (size_t i = 0; i < clear_pixels; i++) {
+                clear_start[i] = bg_color;
             }
         }
         
