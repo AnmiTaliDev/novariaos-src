@@ -13,7 +13,6 @@
 static char cpuinfo_buf[2048];
 static int cpuinfo_initialized = 0;
 
-// Procfs entry registry for new VFS interface
 #define MAX_PROCFS_ENTRIES 64
 
 typedef struct {
@@ -57,7 +56,6 @@ static void procfs_remove_entry(const char* name) {
     }
 }
 
-// ProcFS operations for new VFS interface
 static int procfs_mount(vfs_mount_t* mnt, const char* device, void* data) {
     (void)device; (void)data;
     mnt->fs_private = NULL;
@@ -72,7 +70,6 @@ static int procfs_unmount(vfs_mount_t* mnt) {
 static int procfs_stat(vfs_mount_t* mnt, const char* path, vfs_stat_t* stat) {
     (void)mnt;
 
-    // Root directory
     if (path[0] == '\0' || strcmp(path, "/") == 0) {
         stat->st_mode = VFS_S_IFDIR | 0555;
         stat->st_size = 0;
@@ -81,7 +78,6 @@ static int procfs_stat(vfs_mount_t* mnt, const char* path, vfs_stat_t* stat) {
         return 0;
     }
 
-    // Look for entry
     procfs_entry_t* entry = procfs_find_entry(path);
     if (entry) {
         if (entry->is_dir) {
@@ -110,18 +106,15 @@ static int procfs_readdir_impl(vfs_mount_t* mnt, const char* path, vfs_dirent_t*
         const char* entry_name = procfs_entries[i].name;
         size_t entry_len = strlen(entry_name);
 
-        // Check if entry is direct child of path
         bool is_child = false;
 
         if (path_len == 0 || (path_len == 1 && path[0] == '/')) {
-            // Root - look for top-level entries (no slash or single leading slash then no more)
             int slashes = 0;
             for (size_t j = 0; j < entry_len; j++) {
                 if (entry_name[j] == '/') slashes++;
             }
             is_child = (slashes == 0);
         } else {
-            // Check if entry starts with path/ and has no more slashes
             if (entry_len > path_len &&
                 strncmp(entry_name, path, path_len) == 0 &&
                 entry_name[path_len] == '/') {
@@ -148,24 +141,250 @@ static int procfs_readdir_impl(vfs_mount_t* mnt, const char* path, vfs_dirent_t*
     return count;
 }
 
+typedef struct {
+    procfs_entry_t* entry;
+    vfs_off_t pos;
+} procfs_private_t;
+
+static int procfs_open(vfs_mount_t* mnt, const char* path, int flags, vfs_file_handle_t* h) {
+    (void)mnt; (void)flags;
+    
+    if (path[0] == '\0' || strcmp(path, "/") == 0) {
+        return -EISDIR;
+    }
+    
+    procfs_entry_t* entry = procfs_find_entry(path);
+    if (!entry || entry->is_dir) {
+        return -ENOENT;
+    }
+    
+    procfs_private_t* priv = (procfs_private_t*)kmalloc(sizeof(procfs_private_t));
+    if (!priv) return -ENOMEM;
+    
+    priv->entry = entry;
+    priv->pos = 0;
+    h->private_data = priv;
+    
+    return 0;
+}
+
+static int procfs_close(vfs_mount_t* mnt, vfs_file_handle_t* h) {
+    (void)mnt;
+    if (h->private_data) {
+        kfree(h->private_data);
+    }
+    return 0;
+}
+
+static vfs_ssize_t procfs_read(vfs_mount_t* mnt, vfs_file_handle_t* h, void* buf, size_t count) {
+    (void)mnt;
+    procfs_private_t* priv = (procfs_private_t*)h->private_data;
+    
+    if (!priv || !priv->entry || !priv->entry->read_fn) {
+        return -EACCES;
+    }
+    
+    return priv->entry->read_fn(NULL, buf, count, &priv->pos);
+}
+
 static const vfs_fs_ops_t procfs_ops = {
     .name = "procfs",
     .mount = procfs_mount,
     .unmount = procfs_unmount,
-    .stat = procfs_stat,
-    .readdir = procfs_readdir_impl,
-    // Other operations use legacy mechanism via vfs_pseudo_register
-    .open = NULL,
-    .close = NULL,
-    .read = NULL,
+    .open = procfs_open,
+    .close = procfs_close,
+    .read = procfs_read,
     .write = NULL,
     .seek = NULL,
+    .stat = procfs_stat,
+    .readdir = procfs_readdir_impl,
     .mkdir = NULL,
     .rmdir = NULL,
     .unlink = NULL,
     .ioctl = NULL,
     .sync = NULL,
 };
+
+static int parse_frequency_mhz(const char* str) {
+    int integer_part = 0;
+    int fractional_part = 0;
+    int fractional_digits = 0;
+    int in_fraction = 0;
+
+    while (*str == ' ' || *str == '\t') {
+        str++;
+    }
+
+    while (*str >= '0' && *str <= '9') {
+        integer_part = integer_part * 10 + (*str - '0');
+        str++;
+    }
+
+    if (*str == '.') {
+        str++;
+        in_fraction = 1;
+        while (*str >= '0' && *str <= '9') {
+            fractional_part = fractional_part * 10 + (*str - '0');
+            fractional_digits++;
+            str++;
+        }
+    }
+
+    int mhz = integer_part * 1000;
+
+    if (fractional_digits > 0) {
+        int multiplier = 1;
+        for (int i = 0; i < 3 - fractional_digits; i++) {
+            multiplier *= 10;
+        }
+        mhz += fractional_part * multiplier;
+    }
+
+    return mhz;
+}
+
+void cpuinfo_init(void) {
+    char *buf = cpuinfo_buf;
+    size_t remaining = sizeof(cpuinfo_buf);
+    cpuid_result_t result;
+    char num_str[32];
+    char brand_str[49] = {0};
+    char model_name[64] = {0};
+    char mhz_str[32] = "unknown";
+
+    cpuid(0, 0, &result);
+    char vendor[13];
+    memcpy(vendor, &result.ebx, 4);
+    memcpy(vendor + 4, &result.edx, 4);
+    memcpy(vendor + 8, &result.ecx, 4);
+    vendor[12] = '\0';
+
+    strcpy_safe(buf, "vendor_id       : ", remaining);
+    strcat_safe(buf, vendor, remaining);
+    strcat_safe(buf, "\n", remaining);
+    buf += strlen(buf);
+    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+
+    cpuid(1, 0, &result);
+
+    strcpy_safe(buf, "cpu family      : ", remaining);
+    itoa((result.eax >> 8) & 0xF, num_str, 10);
+    strcat_safe(buf, num_str, remaining);
+    strcat_safe(buf, "\n", remaining);
+    buf += strlen(buf);
+    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+
+    strcpy_safe(buf, "model           : ", remaining);
+    uint8_t model = (result.eax >> 4) & 0xF;
+    uint8_t extended_model = (result.eax >> 16) & 0xF;
+    itoa((extended_model << 4) | model, num_str, 10);
+    strcat_safe(buf, num_str, remaining);
+    strcat_safe(buf, "\n", remaining);
+    buf += strlen(buf);
+    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+
+    strcpy_safe(buf, "model name      : ", remaining);
+
+    cpuid(0x80000000, 0, &result);
+    if (result.eax >= 0x80000004) {
+        cpuid(0x80000002, 0, &result);
+        memcpy(brand_str, &result.eax, 4);
+        memcpy(brand_str + 4, &result.ebx, 4);
+        memcpy(brand_str + 8, &result.ecx, 4);
+        memcpy(brand_str + 12, &result.edx, 4);
+        
+        cpuid(0x80000003, 0, &result);
+        memcpy(brand_str + 16, &result.eax, 4);
+        memcpy(brand_str + 20, &result.ebx, 4);
+        memcpy(brand_str + 24, &result.ecx, 4);
+        memcpy(brand_str + 28, &result.edx, 4);
+        
+        cpuid(0x80000004, 0, &result);
+        memcpy(brand_str + 32, &result.eax, 4);
+        memcpy(brand_str + 36, &result.ebx, 4);
+        memcpy(brand_str + 40, &result.ecx, 4);
+        memcpy(brand_str + 44, &result.edx, 4);
+        brand_str[48] = '\0';
+
+        int j = 0;
+        int last_char_was_space = 0;
+        for (int i = 0; i < 48; i++) {
+            if (brand_str[i] == ' ') {
+                if (!last_char_was_space && j > 0) {
+                    model_name[j++] = ' ';
+                    last_char_was_space = 1;
+                }
+            } else if (brand_str[i] != 0) {
+                model_name[j++] = brand_str[i];
+                last_char_was_space = 0;
+            }
+        }
+        model_name[j] = '\0';
+        
+        if (strlen(model_name) > 0) {
+            strcat_safe(buf, model_name, remaining);
+            
+            char *ghz_ptr = strstr(model_name, "@");
+            if (ghz_ptr) {
+                ghz_ptr++;
+                while (*ghz_ptr == ' ') ghz_ptr++;
+
+                if ((*ghz_ptr >= '0' && *ghz_ptr <= '9') || *ghz_ptr == '.') {
+                    char freq_buf[32];
+                    int k = 0;
+
+                    while ((*ghz_ptr >= '0' && *ghz_ptr <= '9') || *ghz_ptr == '.') {
+                        freq_buf[k++] = *ghz_ptr++;
+                    }
+                    freq_buf[k] = '\0';
+
+                    int mhz = parse_frequency_mhz(freq_buf);
+                    if (mhz > 0) {
+                        itoa(mhz, mhz_str, 10);
+                        strcat_safe(mhz_str, ".0", sizeof(mhz_str));
+                    }
+                }
+            }
+        } else {
+            strcat_safe(buf, "Unknown", remaining);
+        }
+    } else {
+        strcat_safe(buf, "Unknown", remaining);
+    }
+    strcat_safe(buf, "\n", remaining);
+    buf += strlen(buf);
+    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+
+    cpuid(1, 0, &result);
+    strcpy_safe(buf, "stepping        : ", remaining);
+    itoa(result.eax & 0xF, num_str, 10);
+    strcat_safe(buf, num_str, remaining);
+    strcat_safe(buf, "\n", remaining);
+    buf += strlen(buf);
+    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+
+    strcpy_safe(buf, "cpu MHz         : ", remaining);
+
+    cpuid(0x16, 0, &result);
+    if (result.eax != 0 && result.ebx != 0 && result.ecx != 0) {
+        itoa(result.eax, num_str, 10);
+        strcat_safe(buf, num_str, remaining);
+        strcat_safe(buf, ".", remaining);
+        itoa(result.ebx, num_str, 10);
+        strcat_safe(buf, num_str, remaining);
+    } 
+    else if (strcmp(mhz_str, "unknown") != 0) {
+        strcat_safe(buf, mhz_str, remaining);
+    }
+    strcat_safe(buf, "\n", remaining);
+    buf += strlen(buf);
+    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+
+    cpuid(1, 0, &result);
+    strcpy_safe(buf, "fpu             : ", remaining);
+    strcat_safe(buf, (result.edx & (1 << 0)) ? "yes" : "no", remaining);
+    strcat_safe(buf, "\n", remaining);
+}
 
 static vfs_ssize_t procfs_bytecode_read(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
     nvm_process_t* process = (nvm_process_t*)file->dev_data;
@@ -410,118 +629,8 @@ static vfs_ssize_t procfs_stack_read(vfs_file_t* file, void* buf, size_t count, 
     return to_copy;
 }
 
-void procfs_init(void) {
-    // Initialize entry registry
-    for (int i = 0; i < MAX_PROCFS_ENTRIES; i++) {
-        procfs_entries[i].used = false;
-    }
-
-    // Register procfs as a filesystem
-    vfs_register_filesystem("procfs", &procfs_ops, VFS_FS_NODEV | VFS_FS_VIRTUAL | VFS_FS_READONLY);
-    vfs_mount_fs("procfs", "/proc", NULL, VFS_MNT_READONLY, NULL);
-
-    // Register entries in new registry (for readdir/stat)
-    procfs_add_entry("cpuinfo", procfs_cpuinfo, NULL, false);
-    procfs_add_entry("meminfo", procfs_meminfo, NULL, false);
-    procfs_add_entry("pci", procfs_pci, NULL, false);
-    procfs_add_entry("uptime", procfs_uptime, NULL, false);
-    procfs_add_entry("version", procfs_version, NULL, false);
-    
-    // Register via legacy mechanism (for actual I/O)
-    vfs_pseudo_register("/proc/cpuinfo", procfs_cpuinfo, NULL, NULL, NULL, NULL);
-    vfs_pseudo_register("/proc/meminfo", procfs_meminfo, NULL, NULL, NULL, NULL);
-    vfs_pseudo_register("/proc/pci", procfs_pci, NULL, NULL, NULL, NULL);
-    vfs_pseudo_register("/proc/uptime", procfs_uptime, NULL, NULL, NULL, NULL);
-    vfs_pseudo_register("/proc/version", procfs_version, NULL, NULL, NULL, NULL);
-
-    cpuinfo_init();
-}
-
-void procfs_register(int pid, void* process_data) {
-    char pid_str[16];
-    char path[64];
-    char filepath[128];
-    char relpath[128];
-
-    itoa(pid, pid_str, 10);
-
-    strcpy(path, "/proc/");
-    strcat(path, pid_str);
-
-    // Register in new entry registry (relative paths without /proc/)
-    procfs_add_entry(pid_str, NULL, process_data, true);
-
-    strcpy(relpath, pid_str);
-    strcat(relpath, "/status");
-    procfs_add_entry(relpath, procfs_status_read, process_data, false);
-
-    strcpy(relpath, pid_str);
-    strcat(relpath, "/stack");
-    procfs_add_entry(relpath, procfs_stack_read, process_data, false);
-
-    strcpy(relpath, pid_str);
-    strcat(relpath, "/bytecode");
-    procfs_add_entry(relpath, procfs_bytecode_read, process_data, false);
-
-    // Register via legacy mechanism
-    vfs_mkdir(path);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/status");
-    vfs_pseudo_register(filepath, procfs_status_read, NULL, NULL, NULL, process_data);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/stack");
-    vfs_pseudo_register(filepath, procfs_stack_read, NULL, NULL, NULL, process_data);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/bytecode");
-    vfs_pseudo_register(filepath, procfs_bytecode_read, NULL, NULL, NULL, process_data);
-}
-
-void procfs_unregister(int pid) {
-    char pid_str[16];
-    char path[64];
-    char filepath[128];
-    char relpath[128];
-
-    itoa(pid, pid_str, 10);
-
-    strcpy(path, "/proc/");
-    strcat(path, pid_str);
-
-    // Remove from new entry registry
-    strcpy(relpath, pid_str);
-    strcat(relpath, "/status");
-    procfs_remove_entry(relpath);
-
-    strcpy(relpath, pid_str);
-    strcat(relpath, "/stack");
-    procfs_remove_entry(relpath);
-
-    strcpy(relpath, pid_str);
-    strcat(relpath, "/bytecode");
-    procfs_remove_entry(relpath);
-
-    procfs_remove_entry(pid_str);
-
-    // Remove via legacy mechanism
-    strcpy(filepath, path);
-    strcat(filepath, "/status");
-    vfs_delete(filepath);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/stack");
-    vfs_delete(filepath);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/bytecode");
-    vfs_delete(filepath);
-
-    vfs_rmdir(path);
-}
-
 vfs_ssize_t procfs_cpuinfo(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
+    (void)file;
     if (!cpuinfo_initialized) {
         cpuinfo_init();
         cpuinfo_initialized = 1;
@@ -542,16 +651,16 @@ vfs_ssize_t procfs_cpuinfo(vfs_file_t* file, void* buf, size_t count, vfs_off_t*
 }
 
 vfs_ssize_t procfs_meminfo(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
+    (void)file;
     char meminfo_buf[512];
 
-    // Always recalculate memory info
     size_t memTotal = get_memory_total();
-    size_t buddyFree = get_memory_free();  // free blocks in buddy allocator
-    size_t allocated = get_memory_used();  // memory allocated via kmalloc
+    size_t buddyFree = get_memory_free();
+    size_t allocated = get_memory_used();
     size_t memUsed = allocated;
-    size_t memFree = memTotal - allocated;  // available memory for allocation
+    size_t memFree = memTotal - allocated;
 
-    size_t overhead = 0; // Buddy allocator doesn't have per-block overhead like linked list
+    size_t overhead = 0;
 
     char total_str[32], used_str[32], free_str[32], ovh_str[32], buddy_free_str[32];
     format_memory_size(memTotal, total_str);
@@ -583,14 +692,17 @@ vfs_ssize_t procfs_meminfo(vfs_file_t* file, void* buf, size_t count, vfs_off_t*
 }
 
 vfs_ssize_t procfs_pci(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
+    (void)file; (void)buf; (void)count; (void)pos;
     return 0;
 }
 
 vfs_ssize_t procfs_uptime(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
+    (void)file; (void)buf; (void)count; (void)pos;
     return 0;
 }
 
 vfs_ssize_t procfs_version(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
+    (void)file;
     const char* version_str = "n300326";
     size_t len = strlen(version_str);
 
@@ -608,183 +720,99 @@ vfs_ssize_t procfs_version(vfs_file_t* file, void* buf, size_t count, vfs_off_t*
     return to_copy;
 }
 
-int parse_frequency_mhz(const char* str) {
-    int integer_part = 0;
-    int fractional_part = 0;
-    int fractional_digits = 0;
-    int in_fraction = 0;
-
-    while (*str == ' ' || *str == '\t') {
-        str++;
+void procfs_init(void) {
+    for (int i = 0; i < MAX_PROCFS_ENTRIES; i++) {
+        procfs_entries[i].used = false;
     }
 
-    while (*str >= '0' && *str <= '9') {
-        integer_part = integer_part * 10 + (*str - '0');
-        str++;
-    }
+    vfs_register_filesystem("procfs", &procfs_ops, VFS_FS_NODEV | VFS_FS_VIRTUAL | VFS_FS_READONLY);
+    vfs_mount_fs("procfs", "/proc", NULL, VFS_MNT_READONLY, NULL);
 
-    if (*str == '.') {
-        str++;
-        in_fraction = 1;
-        while (*str >= '0' && *str <= '9') {
-            fractional_part = fractional_part * 10 + (*str - '0');
-            fractional_digits++;
-            str++;
-        }
-    }
+    procfs_add_entry("cpuinfo", procfs_cpuinfo, NULL, false);
+    procfs_add_entry("meminfo", procfs_meminfo, NULL, false);
+    procfs_add_entry("pci", procfs_pci, NULL, false);
+    procfs_add_entry("uptime", procfs_uptime, NULL, false);
+    procfs_add_entry("version", procfs_version, NULL, false);
 
-    int mhz = integer_part * 1000;
-
-    if (fractional_digits > 0) {
-        int multiplier = 1;
-        for (int i = 0; i < 3 - fractional_digits; i++) {
-            multiplier *= 10;
-        }
-        mhz += fractional_part * multiplier;
-    }
-
-    return mhz;
+    cpuinfo_init();
 }
 
-void cpuinfo_init(void) {
-    char *buf = cpuinfo_buf;
-    size_t remaining = sizeof(cpuinfo_buf);
-    cpuid_result_t result;
-    char num_str[32];
-    char brand_str[49] = {0};
-    char model_name[64] = {0};
-    char mhz_str[32] = "unknown";
+void procfs_register(int pid, void* process_data) {
+    char pid_str[16];
+    char path[64];
+    char filepath[128];
+    char relpath[128];
 
-    cpuid(0, 0, &result);
-    char vendor[13];
-    memcpy(vendor, &result.ebx, 4);
-    memcpy(vendor + 4, &result.edx, 4);
-    memcpy(vendor + 8, &result.ecx, 4);
-    vendor[12] = '\0';
+    itoa(pid, pid_str, 10);
 
-    strcpy_safe(buf, "vendor_id       : ", remaining);
-    strcat_safe(buf, vendor, remaining);
-    strcat_safe(buf, "\n", remaining);
-    buf += strlen(buf);
-    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+    strcpy(path, "/proc/");
+    strcat(path, pid_str);
 
-    cpuid(1, 0, &result);
+    procfs_add_entry(pid_str, NULL, process_data, true);
 
-    strcpy_safe(buf, "cpu family      : ", remaining);
-    itoa((result.eax >> 8) & 0xF, num_str, 10);
-    strcat_safe(buf, num_str, remaining);
-    strcat_safe(buf, "\n", remaining);
-    buf += strlen(buf);
-    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/status");
+    procfs_add_entry(relpath, procfs_status_read, process_data, false);
 
-    strcpy_safe(buf, "model           : ", remaining);
-    uint8_t model = (result.eax >> 4) & 0xF;
-    uint8_t extended_model = (result.eax >> 16) & 0xF;
-    itoa((extended_model << 4) | model, num_str, 10);
-    strcat_safe(buf, num_str, remaining);
-    strcat_safe(buf, "\n", remaining);
-    buf += strlen(buf);
-    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/stack");
+    procfs_add_entry(relpath, procfs_stack_read, process_data, false);
 
-    strcpy_safe(buf, "model name      : ", remaining);
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/bytecode");
+    procfs_add_entry(relpath, procfs_bytecode_read, process_data, false);
 
-    cpuid(0x80000000, 0, &result);
-    if (result.eax >= 0x80000004) {
-        cpuid(0x80000002, 0, &result);
-        memcpy(brand_str, &result.eax, 4);
-        memcpy(brand_str + 4, &result.ebx, 4);
-        memcpy(brand_str + 8, &result.ecx, 4);
-        memcpy(brand_str + 12, &result.edx, 4);
-        
-        cpuid(0x80000003, 0, &result);
-        memcpy(brand_str + 16, &result.eax, 4);
-        memcpy(brand_str + 20, &result.ebx, 4);
-        memcpy(brand_str + 24, &result.ecx, 4);
-        memcpy(brand_str + 28, &result.edx, 4);
-        
-        cpuid(0x80000004, 0, &result);
-        memcpy(brand_str + 32, &result.eax, 4);
-        memcpy(brand_str + 36, &result.ebx, 4);
-        memcpy(brand_str + 40, &result.ecx, 4);
-        memcpy(brand_str + 44, &result.edx, 4);
-        brand_str[48] = '\0';
+    vfs_mkdir(path);
 
-        int j = 0;
-        int last_char_was_space = 0;
-        for (int i = 0; i < 48; i++) {
-            if (brand_str[i] == ' ') {
-                if (!last_char_was_space && j > 0) {
-                    model_name[j++] = ' ';
-                    last_char_was_space = 1;
-                }
-            } else if (brand_str[i] != 0) {
-                model_name[j++] = brand_str[i];
-                last_char_was_space = 0;
-            }
-        }
-        model_name[j] = '\0';
-        
-        if (strlen(model_name) > 0) {
-            strcat_safe(buf, model_name, remaining);
-            
-            char *ghz_ptr = strstr(model_name, "@");
-            if (ghz_ptr) {
-                ghz_ptr++;
-                while (*ghz_ptr == ' ') ghz_ptr++;
+    strcpy(filepath, path);
+    strcat(filepath, "/status");
+    vfs_pseudo_register(filepath, procfs_status_read, NULL, NULL, NULL, process_data);
 
-                if ((*ghz_ptr >= '0' && *ghz_ptr <= '9') || *ghz_ptr == '.') {
-                    char freq_buf[32];
-                    int k = 0;
+    strcpy(filepath, path);
+    strcat(filepath, "/stack");
+    vfs_pseudo_register(filepath, procfs_stack_read, NULL, NULL, NULL, process_data);
 
-                    while ((*ghz_ptr >= '0' && *ghz_ptr <= '9') || *ghz_ptr == '.') {
-                        freq_buf[k++] = *ghz_ptr++;
-                    }
-                    freq_buf[k] = '\0';
+    strcpy(filepath, path);
+    strcat(filepath, "/bytecode");
+    vfs_pseudo_register(filepath, procfs_bytecode_read, NULL, NULL, NULL, process_data);
+}
 
-                    int mhz = parse_frequency_mhz(freq_buf);
-                    if (mhz > 0) {
-                        itoa(mhz, mhz_str, 10);
-                        strcat_safe(mhz_str, ".0", sizeof(mhz_str));
-                    }
-                }
-            }
-        } else {
-            strcat_safe(buf, "Unknown", remaining);
-        }
-    } else {
-        strcat_safe(buf, "Unknown", remaining);
-    }
-    strcat_safe(buf, "\n", remaining);
-    buf += strlen(buf);
-    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+void procfs_unregister(int pid) {
+    char pid_str[16];
+    char path[64];
+    char filepath[128];
+    char relpath[128];
 
-    cpuid(1, 0, &result);
-    strcpy_safe(buf, "stepping        : ", remaining);
-    itoa(result.eax & 0xF, num_str, 10);
-    strcat_safe(buf, num_str, remaining);
-    strcat_safe(buf, "\n", remaining);
-    buf += strlen(buf);
-    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+    itoa(pid, pid_str, 10);
 
-    strcpy_safe(buf, "cpu MHz         : ", remaining);
+    strcpy(path, "/proc/");
+    strcat(path, pid_str);
 
-    cpuid(0x16, 0, &result);
-    if (result.eax != 0 && result.ebx != 0 && result.ecx != 0) {
-        itoa(result.eax, num_str, 10);
-        strcat_safe(buf, num_str, remaining);
-        strcat_safe(buf, ".", remaining);
-        itoa(result.ebx, num_str, 10);
-        strcat_safe(buf, num_str, remaining);
-    } 
-    else if (strcmp(mhz_str, "unknown") != 0) {
-        strcat_safe(buf, mhz_str, remaining);
-    }
-    strcat_safe(buf, "\n", remaining);
-    buf += strlen(buf);
-    remaining = sizeof(cpuinfo_buf) - (buf - cpuinfo_buf);
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/status");
+    procfs_remove_entry(relpath);
 
-    cpuid(1, 0, &result);
-    strcpy_safe(buf, "fpu             : ", remaining);
-    strcat_safe(buf, (result.edx & (1 << 0)) ? "yes" : "no", remaining);
-    strcat_safe(buf, "\n", remaining);
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/stack");
+    procfs_remove_entry(relpath);
+
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/bytecode");
+    procfs_remove_entry(relpath);
+
+    procfs_remove_entry(pid_str);
+
+    strcpy(filepath, path);
+    strcat(filepath, "/status");
+    vfs_delete(filepath);
+
+    strcpy(filepath, path);
+    strcat(filepath, "/stack");
+    vfs_delete(filepath);
+
+    strcpy(filepath, path);
+    strcat(filepath, "/bytecode");
+    vfs_delete(filepath);
+
+    vfs_rmdir(path);
 }
