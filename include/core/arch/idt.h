@@ -3,14 +3,13 @@
 
 #include <stdint.h>
 
-#define IDT_SIZE 256
-#define INTERRUPT_GATE 0x8e
-#define KERNEL_CODE_SEGMENT_OFFSET 0x08
-#define KERNEL_CS 0x08
+#define IDT_SIZE          256
+#define INTERRUPT_GATE    0x8E
+#define TRAP_GATE         0x8F
+#define KERNEL_CS         0x28
 
-#define ENTER_KEY_CODE 0x1C
-#define MAX_TEXT_SIZE 1024
-
+#define ENTER_KEY_CODE    0x1C
+#define MAX_TEXT_SIZE     1024
 #define SYSCALL_INTERRUPT 0x80
 
 typedef struct {
