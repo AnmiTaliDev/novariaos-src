@@ -117,9 +117,9 @@ static void init_keyboard(void) {
     kprint(":: Keyboard controller initialized\n", 7);
 }
 
-static void init_nvm_storage(void) {
+static void init_nvm(void) {
     nvm_init();
-    kprint(":: Non-volatile memory initialized\n", 7);
+    kprint(":: NVM subsystem initialized\n", 7);
 }
 
 static void init_multiprocessing(void) {
@@ -269,6 +269,7 @@ void limine_smp_entry(struct limine_mp_info *info) {
     }
 }
 
+
 void kmain() {
     // Early initialization
     init_serial_port();
@@ -279,7 +280,7 @@ void kmain() {
     init_interrupts();
     init_syslog();
     init_keyboard();
-    init_nvm_storage();
+    init_nvm();
     init_multiprocessing();
     
     // Filesystem initialization
