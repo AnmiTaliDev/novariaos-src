@@ -1,0 +1,16 @@
+Welcome to NovariaOS!
+
+Note the following limitations:
+
+---> Everything running in NVM <---
+	Any app surely runs in NVM.
+
+---> YES. NVM IS SLOW <---
+	but not critical.
+
+---> PERSISTENT STORAGE IS IN-MEMORY ONLY <---
+	Filesystem does not survive reboot.
+
+
+---> To update this message,  edit /etc/motd
+---> To disable this message, remove /etc/motd
