@@ -39,7 +39,6 @@ extern nvm_process_t processes[MAX_PROCESSES];
 extern uint8_t current_process;
 
 int nvm_create_process(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[], uint8_t caps_count);
-int nvm_create_process_with_stack(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[], uint8_t caps_count, int32_t* initial_stack_values, uint16_t stack_count);
 bool nvm_execute_instruction(nvm_process_t* proc);
 void nvm_scheduler_tick();
 nvm_process_t* nvm_get_process(uint8_t pid);
