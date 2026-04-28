@@ -364,7 +364,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             break;
         }
 
-        case SYS_DELETE: {
+        case SYS_REMOVE: {
             if (!caps_has_capability(proc, CAP_FS_DELETE)) {
                 result = -1;
                 break;

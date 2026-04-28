@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #define MAX_FILES 256
-#define MAX_HANDLES 64
+#define MAX_HANDLES 1024
 #define MAX_FILENAME 256
 #define MAX_FILE_SIZE 65536
 
