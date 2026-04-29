@@ -11,8 +11,6 @@
 #include <core/fs/procfs.h>
 #include <stdint.h>
 
-#define HEAP_SIZE (4 * 1024)  // 4 KiB
-
 nvm_process_t processes[MAX_PROCESSES];
 uint8_t current_process = 0;
 uint32_t timer_ticks = 0;
@@ -41,17 +39,9 @@ int nvm_create_process(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[]
             processes[i].blocked = false;
             processes[i].wakeup_reason = 0;
 
-            // Allocate heap
-            processes[i].heap = (uint8_t*)kmalloc(HEAP_SIZE);
-            if (!processes[i].heap) {
-                LOG_WARN("Failed to allocate heap for process %d\n", i);
-                return -1;
-            }
-            processes[i].heap_size = HEAP_SIZE;
-            // Zero out the heap
-            for (uint32_t j = 0; j < HEAP_SIZE; j++) {
-                processes[i].heap[j] = 0;
-            }
+            processes[i].heap = NULL;
+            processes[i].heap_size = 0;
+            processes[i].heap_break = 0;
 
             // Initializing capabilities
             for(int j = 0; j < caps_count && j < MAX_CAPS; j++) {
@@ -64,6 +54,8 @@ int nvm_create_process(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[]
             }
 
             procfs_register(i, &processes[i]);
+
+            LOG_INFO("process %d borned.\n",  i);
             return i;
         }
     }
@@ -71,7 +63,6 @@ int nvm_create_process(uint8_t* bytecode, uint32_t size, uint16_t initial_caps[]
     LOG_WARN("No free process slots\n");
     return -1;
 }
-
 
 bool nvm_kill_process(uint8_t pid) {
     if(pid >= MAX_PROCESSES) {
@@ -92,6 +83,7 @@ bool nvm_kill_process(uint8_t pid) {
         kfree(proc->heap);
         proc->heap = NULL;
         proc->heap_size = 0;
+        proc->heap_break = 0;
     }
     
     caps_clear_all(proc);
@@ -113,7 +105,10 @@ bool nvm_kill_process(uint8_t pid) {
     proc->ip = 0;
     proc->fp = -1;
     
-    kfree(proc->bytecode);
+    if (proc->bytecode) {
+        kfree(proc->bytecode);
+        proc->bytecode = NULL;
+    }
     
     return true;
 }
@@ -159,7 +154,7 @@ void nvm_scheduler_tick() {
                 processes[current_process].active &&
                 !processes[current_process].blocked) {
                 if(!nvm_execute_instruction(&processes[current_process])) {
-                    break; // Stop if instruction returns false (halt, error, etc)
+                    break;
                 }
             } else {
                 if(processes[current_process].ip >= processes[current_process].size &&
@@ -188,7 +183,6 @@ void nvm_execute(uint8_t* bytecode, uint32_t size, uint16_t* capabilities, uint8
     }
 }
 
-// Function for get exit code
 int32_t nvm_get_exit_code(uint8_t pid) {
     if(pid < MAX_PROCESSES && !processes[pid].active) {
         return processes[pid].exit_code;
@@ -196,7 +190,6 @@ int32_t nvm_get_exit_code(uint8_t pid) {
     return -1;
 }
 
-// Function for check process activity
 bool nvm_is_process_active(uint8_t pid) {
     if(pid < MAX_PROCESSES) {
         return processes[pid].active;
@@ -261,7 +254,6 @@ void nvm_init_instruction_table(void) {
     instruction_table[0x66] = handle_sar;
 }
 
-
 void nvm_init() {
     for(int i = 0; i < MAX_PROCESSES; i++) {
         processes[i].active = false;
@@ -272,6 +264,7 @@ void nvm_init() {
         processes[i].fp = -1;
         processes[i].heap = NULL;
         processes[i].heap_size = 0;
+        processes[i].heap_break = 0;
     }
 
     nvm_init_instruction_table();

@@ -29,19 +29,18 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
         case SYS_EXIT: {
             if(proc->sp >= 1) {
                 proc->exit_code = proc->stack[proc->sp - 1];
+                proc->sp--;
             } else {
                 proc->exit_code = 0;
             }
             proc->active = false;
             procfs_unregister(proc->pid);
-            if (proc->bytecode) {
-                proc->bytecode = NULL;
-            }
             if (proc->heap) {
                 kfree(proc->heap);
                 proc->heap = NULL;
+                proc->heap_size = 0;
+                proc->heap_break = 0;
             }
-            if(proc->sp > 0) proc->sp--;
             break;
         }
 
@@ -214,7 +213,9 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             int32_t offset = proc->stack[proc->sp - 1];
             proc->sp--;
             
-            if (offset < 0 || offset >= (int32_t)proc->heap_size) {
+            if (proc->heap == NULL || offset < 0 || offset >= (int32_t)proc->heap_break) {
+                LOG_WARN("process %d: SYS_OPEN invalid offset %d (heap_break=%d)\n", 
+                         proc->pid, offset, proc->heap_break);
                 result = -1;
                 break;
             }
@@ -223,7 +224,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             int pos = 0;
             uint32_t current_offset = offset;
             
-            while (current_offset < proc->heap_size && pos < MAX_FILENAME - 1) {
+            while (current_offset < proc->heap_break && pos < MAX_FILENAME - 1) {
                 char ch = (char)proc->heap[current_offset];
                 if (ch == '\0') {
                     break;
@@ -254,24 +255,37 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                 break;
             }
 
-            if (proc->sp < 1) {
+            if (proc->sp < 2) {
+                LOG_WARN("process %d: SYS_READ needs 2 arguments (offset, fd)\n", proc->pid);
                 result = -1;
                 break;
             }
             
-            int32_t fd = proc->stack[proc->sp - 1];
-            proc->sp--;
+            int32_t offset = proc->stack[proc->sp - 1];
+            int32_t fd = proc->stack[proc->sp - 2];
+            proc->sp -= 2;
             
             if (fd < 0) {
                 result = -1;
                 break;
             }
             
-            static uint32_t next_offset = 0;
-            uint32_t offset = next_offset;
-            uint32_t current_pos = offset;
+            if (proc->heap == NULL) {
+                LOG_WARN("process %d: SYS_READ called but heap is NULL\n", proc->pid);
+                result = -1;
+                break;
+            }
             
-            while (current_pos < proc->heap_size - 1) {
+            if (offset < 0 || offset >= (int32_t)proc->heap_break) {
+                LOG_WARN("process %d: SYS_READ invalid offset %d (heap_break=%d)\n", 
+                        proc->pid, offset, proc->heap_break);
+                result = -1;
+                break;
+            }
+            
+            uint32_t current_pos = offset;
+
+            while (current_pos < proc->heap_break - 1) {
                 char ch;
                 size_t bytes_read = vfs_readfd(fd, &ch, 1);
                 
@@ -286,17 +300,15 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
                     break;
                 }
             }
-
-            if (current_pos < proc->heap_size) {
-                proc->heap[current_pos] = '\0';
-                current_pos++;
-            } else {
-                LOG_WARN("process %d: Heap overflow in SYS_READ\n", proc->pid);
-                result = -1;
-                break;
-            }
             
-            next_offset = current_pos;
+            if (current_pos < proc->heap_break) {
+                proc->heap[current_pos] = '\0';
+            } else {
+                LOG_WARN("process %d: SYS_READ no space for null terminator at offset %d\n", 
+                        proc->pid, current_pos);
+                proc->heap[proc->heap_break - 1] = '\0';
+            }
+
             result = offset;
             
             proc->stack[proc->sp] = result;
@@ -319,7 +331,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             int32_t fd = proc->stack[proc->sp - 2];
             proc->sp -= 2;
             
-            if (fd < 0 || offset < 0 || offset >= (int32_t)proc->heap_size) {
+            if (fd < 0 || offset < 0 || proc->heap == NULL || offset >= (int32_t)proc->heap_break) {
                 result = -1;
                 break;
             }
@@ -327,7 +339,7 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             uint32_t bytes_written = 0;
             uint32_t current_offset = offset;
             
-            while (current_offset < proc->heap_size) {
+            while (current_offset < proc->heap_break) {
                 char ch = (char)proc->heap[current_offset];
                 
                 if (ch == '\0') {
@@ -404,8 +416,110 @@ int32_t syscall_handler(uint8_t syscall_id, nvm_process_t* proc) {
             break;
         }
 
+        case SYS_SBRK: {
+            if (proc->sp < 1) {
+                LOG_WARN("process %d: SYS_SBRK needs an argument\n", proc->pid);
+                nvm_kill_process(proc->pid);
+                result = -1;
+                break;
+            }
+            
+            int32_t increment = proc->stack[proc->sp - 1];
+            proc->sp--;
+            
+            int32_t old_break = proc->heap_break;
+            int32_t new_break = proc->heap_break + increment;
+            
+            LOG_DEBUG("process %d: SYS_SBRK increment=%d, old=%d, new=%d\n", 
+                      proc->pid, increment, old_break, new_break);
+            
+            if (increment == 0) {
+                result = old_break;
+                break;
+            }
+            
+            if (increment < 0) {
+                if (new_break < 0) {
+                    LOG_WARN("process %d: SYS_SBRK would make heap negative\n", proc->pid);
+                    result = -1;
+                    break;
+                }
+                
+                if (new_break == 0) {
+                    // Free entire heap
+                    if (proc->heap) {
+                        LOG_INFO("process %d: Freeing entire heap\n", proc->pid);
+                        kfree(proc->heap);
+                        proc->heap = NULL;
+                        proc->heap_size = 0;
+                    }
+                    proc->heap_break = 0;
+                    result = old_break;
+                    break;
+                }
+                
+                uint32_t new_size = new_break;
+                uint8_t* new_heap = (uint8_t*)kmalloc(new_size);
+                if (!new_heap) {
+                    LOG_ERROR("process %d: Failed to allocate smaller heap of %u bytes\n", 
+                              proc->pid, new_size);
+                    result = -1;
+                    break;
+                }
+                
+                uint32_t copy_size = (proc->heap_size < new_size) ? proc->heap_size : new_size;
+                for (uint32_t i = 0; i < copy_size; i++) {
+                    new_heap[i] = proc->heap[i];
+                }
+                
+                if (proc->heap) {
+                    kfree(proc->heap);
+                }
+                
+                proc->heap = new_heap;
+                proc->heap_size = new_size;
+                proc->heap_break = new_break;
+                result = old_break;
+                break;
+            }
+            
+            if (increment > 0) {
+                uint32_t new_size = new_break;
+                uint8_t* new_heap = (uint8_t*)kmalloc(new_size);
+                if (!new_heap) {
+                    LOG_ERROR("process %d: Failed to allocate larger heap of %u bytes\n", 
+                              proc->pid, new_size);
+                    result = -1;
+                    break;
+                }
+                
+                if (proc->heap) {
+                    uint32_t copy_size = (proc->heap_size < new_size) ? proc->heap_size : new_size;
+                    for (uint32_t i = 0; i < copy_size; i++) {
+                        new_heap[i] = proc->heap[i];
+                    }
+                    kfree(proc->heap);
+                }
+                
+                for (uint32_t i = (proc->heap ? proc->heap_size : 0); i < new_size; i++) {
+                    new_heap[i] = 0;
+                }
+                
+                proc->heap = new_heap;
+                proc->heap_size = new_size;
+                proc->heap_break = new_break;
+                result = old_break;
+                break;
+            }
+            
+            break;
+        }
+
         default: {
+            LOG_WARN("process %d: Unknown syscall %d\n", proc->pid, syscall_id);
             nvm_kill_process(proc->pid);
+            result = -1;
+            break;
         }
     }
     

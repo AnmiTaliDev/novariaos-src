@@ -26,13 +26,12 @@ typedef struct {
     int32_t fp;
     uint8_t wakeup_reason;
     
-    // Capabilities
     uint16_t capabilities[MAX_CAPS];
     uint8_t caps_count;
     
-    // Heap
     uint8_t* heap;
     uint32_t heap_size;
+    uint32_t heap_break;
 } nvm_process_t;
 
 extern nvm_process_t processes[MAX_PROCESSES];
