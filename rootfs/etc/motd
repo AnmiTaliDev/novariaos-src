@@ -1,16 +1,12 @@
-Welcome to NovariaOS!
+Welcome to NovariaOS (x86_64)
 
-Note the following limitations:
+"Not a fork. A ground-up capability-based OS with a built-in 
+VM to eliminate hardware-software incompatibility. Not replacing 
+anything. Exploring an alternative path.."
 
----> Everything running in NVM <---
-	Any app surely runs in NVM.
+> NVM: interpreted, slow but functional
+> Storage: in-memory only (reboot = fresh start)
+> Docs: novariaos.github.io/docs
+> Telegram: @NovariaOS
 
----> YES. NVM IS SLOW <---
-	but not critical.
-
----> PERSISTENT STORAGE IS IN-MEMORY ONLY <---
-	Filesystem does not survive reboot.
-
-
----> To update this message,  edit /etc/motd
----> To disable this message, remove /etc/motd
+---=--:._ What will you explore today? _.:--=---
