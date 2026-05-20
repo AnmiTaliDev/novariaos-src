@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <core/drivers/nvme.h>
+#include <core/drivers/pci.h>
+#include <core/drivers/msix.h>
+#include <core/arch/apic.h>
+#include <core/arch/idt.h>
 #include <core/fs/block.h>
 #include <core/kernel/mem/allocator.h>
 #include <core/kernel/kstd.h>
@@ -9,28 +13,23 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define PCI_CONFIG_ADDR 0xCF8
-#define PCI_CONFIG_DATA 0xCFC
 #define PCI_CLASS_NVME  0x010802
+#define NVME_IRQ_VECTOR 0x21
 
 #define VIRT_TO_PHYS(addr) ((uint64_t)(addr) - get_hhdm_offset())
 
-static inline void outl(uint16_t port, uint32_t val) {
-    __asm__ volatile("outl %0, %1" :: "a"(val), "Nd"(port));
-}
+static uint8_t nvme_pci_bus  = 0;
+static uint8_t nvme_pci_slot = 0;
+static uint8_t nvme_pci_func = 0;
+static bool    nvme_use_irq  = false;
 
-static inline uint32_t inl(uint16_t port) {
-    uint32_t val;
-    __asm__ volatile("inl %1, %0" : "=a"(val) : "Nd"(port));
-    return val;
-}
+static volatile bool nvme_irq_pending = false;
 
-static uint32_t pci_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
-    uint32_t addr = (1u << 31) | ((uint32_t)bus << 16) |
-                    ((uint32_t)slot << 11) | ((uint32_t)func << 8) |
-                    (offset & 0xFC);
-    outl(PCI_CONFIG_ADDR, addr);
-    return inl(PCI_CONFIG_DATA);
+static void __attribute__((interrupt, target("general-regs-only")))
+nvme_irq_handler(interrupt_frame_t *frame) {
+    (void)frame;
+    nvme_irq_pending = true;
+    apic_eoi();
 }
 
 static uint64_t nvme_find_bar(void) {
@@ -38,17 +37,18 @@ static uint64_t nvme_find_bar(void) {
         uint32_t id = pci_read(0, slot, 0, 0x00);
         if (id == 0xFFFFFFFF) continue;
 
-        uint32_t class_rev = pci_read(0, slot, 0, 0x08);
+        uint32_t class_rev  = pci_read(0, slot, 0, 0x08);
         uint32_t class_code = class_rev >> 8;
 
         if (class_code == PCI_CLASS_NVME) {
             LOG_DEBUG("NVMe: found at PCI 00:%02x.0 (class=0x%x)\n", slot, class_code);
+            nvme_pci_bus  = 0;
+            nvme_pci_slot = slot;
+            nvme_pci_func = 0;
 
             uint32_t bar0_lo = pci_read(0, slot, 0, 0x10);
             uint32_t bar0_hi = pci_read(0, slot, 0, 0x14);
-
-            uint64_t bar = ((uint64_t)bar0_hi << 32) | (bar0_lo & ~0xFu);
-            return bar;
+            return ((uint64_t)bar0_hi << 32) | (bar0_lo & ~0xFu);
         }
     }
     return 0;
@@ -183,10 +183,13 @@ static int nvme_identify_namespace(uint32_t ns_id, void* data) {
 
 static int nvme_create_io_completion_queue(uint16_t qid, uint16_t size, void* buffer) {
     nvme_command_t cmd = {0};
-    cmd.cdw0 = NVME_ADMIN_CREATE_CQ;
-    cmd.prp1 = VIRT_TO_PHYS(buffer);
+    cmd.cdw0  = NVME_ADMIN_CREATE_CQ;
+    cmd.prp1  = VIRT_TO_PHYS(buffer);
     cmd.cdw10 = ((uint32_t)(size - 1) << 16) | qid;
     cmd.cdw11 = NVME_QUEUE_PHYS_CONTIG;
+
+    if (nvme_use_irq)
+        cmd.cdw11 |= NVME_CQ_IRQ_ENABLED;
 
     return nvme_submit_admin_command(&cmd);
 }
@@ -320,19 +323,33 @@ static void nvme_setup_prp(nvme_command_t* cmd, uint64_t buf_phys, size_t count,
 static int nvme_submit_and_wait(nvme_command_t* cmd) {
     uint16_t slot = io_sq_tail;
     memcpy(&io_sq[slot], cmd, sizeof(nvme_command_t));
-
     io_sq_tail = (io_sq_tail + 1) % NVME_IO_QUEUE_SIZE;
+
+    if (nvme_use_irq)
+        nvme_irq_pending = false;
+
     nvme_write_doorbell(1, io_sq_tail, true);
 
     for (int timeout = 0; timeout < 10000; timeout++) {
-        nvme_completion_t* cqe = &io_cq[io_cq_head];
-        if ((cqe->status & 1) == io_cq_phase) {
+        bool cqe_ready;
+
+        if (nvme_use_irq) {
+            cqe_ready = nvme_irq_pending;
+        } else {
+            nvme_completion_t* cqe = &io_cq[io_cq_head];
+            cqe_ready = ((cqe->status & 1) == io_cq_phase);
+        }
+
+        if (cqe_ready) {
+            if (nvme_use_irq)
+                nvme_irq_pending = false;
+
+            nvme_completion_t* cqe = &io_cq[io_cq_head];
             uint16_t status_code = (cqe->status >> 1) & 0x7FFF;
             io_cq_head = (io_cq_head + 1) % NVME_IO_QUEUE_SIZE;
 
-            if (io_cq_head == 0) {
+            if (io_cq_head == 0)
                 io_cq_phase = !io_cq_phase;
-            }
 
             nvme_write_doorbell(1, io_cq_head, false);
 
@@ -436,6 +453,19 @@ void nvme_init(void) {
     }
 
     LOG_DEBUG("NVMe: Controller found, CAP=0x%llx\n", cap);
+
+    msix_info_t msix;
+    if (msix_find(nvme_pci_bus, nvme_pci_slot, nvme_pci_func, &msix)) {
+        idt_install_handler(NVME_IRQ_VECTOR, nvme_irq_handler);
+        if (msix_setup(&msix, 0, NVME_IRQ_VECTOR)) {
+            nvme_use_irq = true;
+            LOG_INFO("NVMe: MSI-X enabled, vector 0x%x\n", NVME_IRQ_VECTOR);
+        } else {
+            LOG_ERROR("NVMe: MSI-X setup failed, using polling\n");
+        }
+    } else {
+        LOG_INFO("NVMe: MSI-X not available, using polling\n");
+    }
 
     if (nvme_reset_controller() < 0) {
         return;
