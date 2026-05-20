@@ -10,7 +10,7 @@
 - [x] Identify namespace command
 - [x] NVMe read operations (polling mode)
 - [x] NVMe write operations (polling mode)
-- [ ] Interrupt-based I/O (currently uses polling)
+- [x] Interrupt-based I/O (MSI-X, polling fallback)
 - [x] Multiple namespace support
 - [x] PCI enumeration for NVMe devices
 
@@ -101,14 +101,15 @@
 - [X] Program APIC timer
 - [X] Implement `/proc/uptime` (seconds since boot)
      - [X] Internal function: `uint64_t get_uptime(void)`
-- [ ] MSI-X support (requires APIC)
-     - PCI MSI-X capability discovery
-     - MSI-X table setup and vector allocation
-     - Route NVMe interrupt to IDT vector
-- [ ] NVMe interrupt-driven I/O (requires MSI-X)
-     - Replace polling loops in `nvme_read_blocks` / `nvme_write_blocks`
-     - Completion handler via IDT vector
-     - Synchronization primitive (semaphore or wait flag) to block caller until I/O done
+- [x] MSI-X support (requires APIC)
+     - [x] PCI MSI-X capability discovery (`msix_find`)
+     - [x] MSI-X table setup and vector allocation (`msix_setup`)
+     - [x] Route NVMe interrupt to IDT vector (0x21)
+- [x] NVMe interrupt-driven I/O (requires MSI-X)
+     - [x] Replace polling loops in `nvme_read_blocks` / `nvme_write_blocks`
+     - [x] Completion handler via IDT vector (`nvme_irq_handler`)
+     - [x] Wait flag (`nvme_irq_pending`) to block caller until I/O done
+     - [x] Polling fallback if MSI-X unavailable
 
 # Low Priority
 
