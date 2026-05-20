@@ -89,6 +89,29 @@ static int procfs_stat(vfs_mount_t* mnt, const char* path, vfs_stat_t* stat) {
         return 0;
     }
 
+    if (strcmp(path, "self") == 0) {
+        char pid_str[16];
+        itoa(current_process, pid_str, 10);
+        procfs_entry_t* entry = procfs_find_entry(pid_str);
+        if (entry && entry->is_dir) {
+            stat->st_mode = VFS_S_IFDIR | 0555;
+            stat->st_size = 0;
+            stat->st_blksize = 512;
+            stat->st_mtime = 0;
+            return 0;
+        }
+        return -ENOENT;
+    }
+
+    if (strncmp(path, "self/", 5) == 0) {
+        char resolved[64];
+        char pid_str[16];
+        itoa(current_process, pid_str, 10);
+        strcpy(resolved, pid_str);
+        strcat(resolved, path + 4);
+        return procfs_stat(mnt, resolved, stat);
+    }
+
     procfs_entry_t* entry = procfs_find_entry(path);
     if (entry) {
         if (entry->is_dir) {
@@ -108,8 +131,27 @@ static int procfs_stat(vfs_mount_t* mnt, const char* path, vfs_stat_t* stat) {
 static int procfs_readdir_impl(vfs_mount_t* mnt, const char* path, vfs_dirent_t* entries, size_t max) {
     (void)mnt;
 
+    const char* effective_path = path;
+    char resolved[64];
+    bool self_redirect = false;
+
+    if (strcmp(path, "self") == 0) {
+        char pid_str[16];
+        itoa(current_process, pid_str, 10);
+        strcpy(resolved, pid_str);
+        effective_path = resolved;
+        self_redirect = true;
+    } else if (strncmp(path, "self/", 5) == 0) {
+        char pid_str[16];
+        itoa(current_process, pid_str, 10);
+        strcpy(resolved, pid_str);
+        strcat(resolved, path + 4);
+        effective_path = resolved;
+        self_redirect = true;
+    }
+
     int count = 0;
-    size_t path_len = strlen(path);
+    size_t path_len = strlen(effective_path);
 
     for (int i = 0; i < MAX_PROCFS_ENTRIES && (size_t)count < max; i++) {
         if (!procfs_entries[i].used) continue;
@@ -119,7 +161,7 @@ static int procfs_readdir_impl(vfs_mount_t* mnt, const char* path, vfs_dirent_t*
 
         bool is_child = false;
 
-        if (path_len == 0 || (path_len == 1 && path[0] == '/')) {
+        if (path_len == 0 || (path_len == 1 && effective_path[0] == '/')) {
             int slashes = 0;
             for (size_t j = 0; j < entry_len; j++) {
                 if (entry_name[j] == '/') slashes++;
@@ -127,7 +169,7 @@ static int procfs_readdir_impl(vfs_mount_t* mnt, const char* path, vfs_dirent_t*
             is_child = (slashes == 0);
         } else {
             if (entry_len > path_len &&
-                strncmp(entry_name, path, path_len) == 0 &&
+                strncmp(entry_name, effective_path, path_len) == 0 &&
                 entry_name[path_len] == '/') {
                 int slashes = 0;
                 for (size_t j = path_len + 1; j < entry_len; j++) {
@@ -149,6 +191,14 @@ static int procfs_readdir_impl(vfs_mount_t* mnt, const char* path, vfs_dirent_t*
         }
     }
 
+    if (!self_redirect && (path_len == 0 || (path_len == 1 && effective_path[0] == '/'))) {
+        if (count < max) {
+            strcpy(entries[count].d_name, "self");
+            entries[count].d_type = VFS_TYPE_DIR;
+            count++;
+        }
+    }
+
     return count;
 }
 
@@ -164,8 +214,22 @@ static int procfs_open(vfs_mount_t* mnt, const char* path, int flags, vfs_file_h
     if (path[0] == '\0' || strcmp(path, "/") == 0) {
         return -EISDIR;
     }
-    
-    procfs_entry_t* entry = procfs_find_entry(path);
+
+    if (strcmp(path, "self") == 0) {
+        return -EISDIR;
+    }
+
+    char lookup[64];
+    if (strncmp(path, "self/", 5) == 0) {
+        char pid_str[16];
+        itoa(current_process, pid_str, 10);
+        strcpy(lookup, pid_str);
+        strcat(lookup, path + 4);
+    } else {
+        strcpy(lookup, path);
+    }
+
+    procfs_entry_t* entry = procfs_find_entry(lookup);
     if (!entry || entry->is_dir) {
         return -ENOENT;
     }
@@ -695,6 +759,25 @@ static vfs_ssize_t procfs_args_read(vfs_file_t* file, void* buf, size_t count, v
     return to_copy;
 }
 
+static vfs_ssize_t procfs_pid_read(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
+    nvm_process_t* process = (nvm_process_t*)file->dev_data;
+    if (process == NULL) return -1;
+
+    char pid_str[16];
+    itoa(process->pid, pid_str, 10);
+
+    size_t len = strlen(pid_str);
+    if (*pos >= (vfs_off_t)len) return 0;
+
+    size_t remaining = len - *pos;
+    size_t to_copy = (remaining < count) ? remaining : count;
+
+    memcpy(buf, pid_str + *pos, to_copy);
+    *pos += to_copy;
+
+    return to_copy;
+}
+
 vfs_ssize_t procfs_cpuinfo(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
     (void)file;
     if (!cpuinfo_initialized) {
@@ -828,37 +911,6 @@ vfs_ssize_t procfs_version(vfs_file_t* file, void* buf, size_t count, vfs_off_t*
 }
 
 
-/* XXX:  Make this part SAFETY. Currently, its 
-*        just take current proc's PID and its okay if
-*        NVM works in one CPU, but when it will be 
-*        support SMP... Kaboom! Race condition. 
-*/
-vfs_ssize_t procfs_self(vfs_file_t* file, void* buf, size_t count, vfs_off_t* pos) {
-    (void)file;
-    
-    char pid_str[8];
-    itoa(current_process, pid_str, 10);
-
-    int len = 0;
-    while (pid_str[len] != '\0') {
-        len++;
-    }
-    
-    if (*pos >= len) {
-        return 0;
-    }
-    
-    size_t available = len - *pos;
-    size_t to_copy = (count < available) ? count : available;
-    
-    if (buf && to_copy > 0) {
-        memcpy(buf, pid_str + *pos, to_copy);
-        *pos += to_copy;
-    }
-    
-    return to_copy;
-}
-
 void procfs_set_args(int pid, char* argv[], int argc) {
     for (int i = 0; i < MAX_PROCESSES; i++) {
         if (procfs_args[i].used && procfs_args[i].pid == pid) {
@@ -905,14 +957,9 @@ void procfs_clear_args(int pid) {
 
 void procfs_register(int pid, void* process_data) {
     char pid_str[16];
-    char path[64];
-    char filepath[128];
     char relpath[128];
 
     itoa(pid, pid_str, 10);
-
-    strcpy(path, "/proc/");
-    strcat(path, pid_str);
 
     procfs_add_entry(pid_str, NULL, process_data, true);
 
@@ -932,35 +979,16 @@ void procfs_register(int pid, void* process_data) {
     strcat(relpath, "/args");
     procfs_add_entry(relpath, procfs_args_read, process_data, false);
 
-    vfs_mkdir(path);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/status");
-    vfs_pseudo_register(filepath, procfs_status_read, NULL, NULL, NULL, process_data);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/stack");
-    vfs_pseudo_register(filepath, procfs_stack_read, NULL, NULL, NULL, process_data);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/bytecode");
-    vfs_pseudo_register(filepath, procfs_bytecode_read, NULL, NULL, NULL, process_data);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/args");
-    vfs_pseudo_register(filepath, procfs_args_read, NULL, NULL, NULL, process_data);
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/pid");
+    procfs_add_entry(relpath, procfs_pid_read, process_data, false);
 }
 
 void procfs_unregister(int pid) {
     char pid_str[16];
-    char path[64];
-    char filepath[128];
     char relpath[128];
 
     itoa(pid, pid_str, 10);
-
-    strcpy(path, "/proc/");
-    strcat(path, pid_str);
 
     strcpy(relpath, pid_str);
     strcat(relpath, "/status");
@@ -978,26 +1006,12 @@ void procfs_unregister(int pid) {
     strcat(relpath, "/args");
     procfs_remove_entry(relpath);
 
+    strcpy(relpath, pid_str);
+    strcat(relpath, "/pid");
+    procfs_remove_entry(relpath);
+
     procfs_remove_entry(pid_str);
 
-    strcpy(filepath, path);
-    strcat(filepath, "/status");
-    vfs_delete(filepath);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/stack");
-    vfs_delete(filepath);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/bytecode");
-    vfs_delete(filepath);
-
-    strcpy(filepath, path);
-    strcat(filepath, "/args");
-    vfs_delete(filepath);
-
-    vfs_rmdir(path);
-    
     procfs_clear_args(pid);
 }
 
@@ -1018,7 +1032,6 @@ void procfs_init(void) {
     procfs_add_entry("pci", procfs_pci, NULL, false);
     procfs_add_entry("uptime", procfs_uptime, NULL, false);
     procfs_add_entry("version", procfs_version, NULL, false);
-    procfs_add_entry("self", procfs_self, NULL, false);
 
     cpuinfo_init();
 }
