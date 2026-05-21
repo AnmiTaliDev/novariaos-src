@@ -1,0 +1,19 @@
+variables:
+    NC: "nest"
+    ASM: "nvma"
+
+targets:
+  all:
+    deps: [4everloop, Nutils/echo]
+
+  4everloop:
+    cmds:
+      - "${ASM} ${@}.asm ../../bin/${@F}.bin"
+
+  Nutils/echo:
+    cmds:
+      - "${NC} ${@}.nest ../../bin/${@F}"
+
+  clean:
+    cmds:
+      - "rm -rf ../../bin/*"

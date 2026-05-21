@@ -20,7 +20,7 @@ variables:
 
 targets:
   all:
-    deps: [kernel.bin, iso]
+    deps: [kernel.bin, userspace, iso]
 
   prepare:
     deps: []
@@ -371,10 +371,13 @@ targets:
     cmds:
       - "${CC} ${CFLAGS} ${@}.c -o ${OBJ_DIR}/${@}.o"
 
-  apps:
-    deps: [nvma]
+  userspace:
+    deps: []
     cmds:
-      - "./tools/nvma/nvma.bin samples/test_cdrom.asm apps/test_cdrom.bin"
+      - "echo \n"
+      - "echo [USERSPACE BUILDING]"
+      - "cd rootfs/usr/src/ && chorus all && cd ../../.."
+      - "echo \n"
 
   iso:
     deps: []
