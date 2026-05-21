@@ -148,14 +148,14 @@ bool handle_store_heap(nvm_process_t* proc) {
     int32_t value = proc->stack[--proc->sp];
     int32_t offset = proc->stack[--proc->sp];
 
-    if (offset < 0 || offset + 3 >= (int32_t)proc->heap_size) {
+    if (offset < 0 || offset >= (int32_t)proc->heap_size) {
         LOG_WARN("process %d: STORE_HEAP out of bounds (offset=%d, heap_size=%u)\n",
                  proc->pid, offset, proc->heap_size);
         nvm_kill_process(proc->pid);
         return false;
     }
 
-    *(int32_t*)(proc->heap + offset) = value;
+    proc->heap[offset] = (uint8_t)(value & 0xFF);
 
     return true;
 }
